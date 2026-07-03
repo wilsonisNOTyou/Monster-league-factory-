@@ -39,6 +39,7 @@
   #title-sprites{display:flex;gap:10px;}
   #title-sprites canvas{width:56px;height:56px;}
   .bignum{font-size:44px;color:#ffd75e;text-shadow:3px 3px 0 #000;}
+  #pname{font-family:inherit;font-size:13px;width:8em;background:#12121f;color:var(--panel);border:2px solid #556;border-radius:4px;padding:3px 6px;text-align:center;}
 
   .btn{
     font-family:inherit;font-size:14px;background:#fff;color:var(--ink);
@@ -150,10 +151,13 @@
         ・ひんしは こうかんか ★5の ふっかつわざでしか もどらない<br>
         ・あいてを たおすと「+1」パワーアップ(+5のさきは みかただけ max! / ひんしでリセット)<br>
         ・★5には ☆せんようわざ / ★4はベテラン戦・★5はマスター戦から とうじょう<br>
-        ・れんしょう10から「+」ほせい、20から★5かくてい、30こえで まぼろしの★6!?
+        ・れんしょう10から あいてのエースに「+」ほせい(25からは ぜんいん+5)<br>
+        ・れんしょう20から★5かくてい、30こえで まぼろしの★6!?
       </div>
+      <div class="sub">なまえ: <input id="pname" maxlength="8" placeholder="ななし"></div>
       <button class="btn main" style="width:75%" onclick="App.toDraft()">▶ ちょうせん スタート</button>
       <button class="btn main" style="width:75%" onclick="App.toDex()">ずかんを みる</button>
+      <button class="btn main" style="width:75%" onclick="App.toRank()">れんしょうランキング</button>
       <div class="sub" id="title-best"></div>
       <div class="sub blink">PUSH START</div>
     </div>
@@ -207,6 +211,13 @@
       <h2 id="dex-title">モンスターずかん</h2>
       <div class="dex-grid" id="dex-grid"></div>
       <button class="btn main" onclick="App.toTitle()">もどる</button>
+    </div>
+
+    <div id="rank-screen" class="screen dark-screen">
+      <h2>れんしょうランキング</h2>
+      <div class="sub">この ブラウザに ほぞんされた トップ10</div>
+      <div class="rules" id="rank-list" style="width:100%;line-height:2.2;"></div>
+      <button class="btn main" style="width:75%" onclick="App.toTitle()">もどる</button>
     </div>
 
     <div id="result-screen" class="screen dark-screen">
@@ -319,7 +330,7 @@ const MOVES={
  "はねビンタ":{t:"ひこう",p:60,a:100},
  "ウィンドエッジ":{t:"ひこう",p:75,a:95,fl:30},
  "メガストーム":{t:"ひこう",p:110,a:70},
- "ゆうしゃどり":{t:"ひこう",p:120,a:100,recoil:3},
+ "すてみウイング":{t:"ひこう",p:120,a:100,recoil:3},
  "フェザーシャワー":{t:"ひこう",st:1,a:100,foe:{atk:-2}},
  "マインドプッシュ":{t:"エスパー",p:50,a:100},
  "ねんのやいば":{t:"エスパー",p:70,a:100,hc:1},
@@ -380,7 +391,7 @@ const MAIN={
  "こおり":["フリーズレイ","ホワイトアウト","つららクラッシュ"],
  "かくとう":["ゼロきょりラッシュ","じゅうじチョップ","ちからまかせ","バキュームナックル"],
  "じめん":["グランドクエイク","100まんばりき","だいちのいかり"],
- "ひこう":["ウィンドエッジ","ゆうしゃどり","メガストーム"],
+ "ひこう":["ウィンドエッジ","すてみウイング","メガストーム"],
  "エスパー":["サイキックバースト","ねんのやいば"],
  "れい":["シャドースフィア","シャドーカッター","たたりうち"],
  "ドラゴン":["りゅうのかぎづめ","ドラゴンプレス","りゅうせいらんぶ"],
@@ -922,8 +933,15 @@ function genEnemyTeam(rng,streak){
   while(out.length<3){ const id=weightedDexId(rng,w,ex); ex.add(id); out.push(id); }
   return out;
 }
-/* 11戦目から敵全員+1、以降2戦ごとに+1、19戦目から+5で固定 */
-function enemyKoBonus(streak){ return clamp(Math.floor((streak-8)/2),0,5); }
+/* 敵の「+」補正プラン([1体目,2体目,3体目])
+   11戦目〜20戦目: 3体目のみ+1→+5 / 21戦目〜: 後ろ2体+5 / 25戦目〜: 全員+5 */
+function enemyKoPlan(streak){
+  const step=clamp(Math.floor((streak-8)/2),0,5);
+  if(streak>=24) return [5,5,5];
+  if(streak>=20) return [0,5,5];
+  if(streak>=10) return [0,0,step];
+  return [0,0,0];
+}
 const TRAINER_NAMES=["ユウジ","ミサキ","ケンゴ","アカリ","ショウ","リナ","タクマ","ホノカ","ジュン","サヤ","レオ","マコト","ツバサ","カイト","メイ","ゴロウ"];
 const RANKS=[
   {label:"ルーキー",note:"わざを でたらめに えらぶ"},
@@ -938,7 +956,21 @@ function aiLevelForStreak(s){ return s<2?0:s<5?1:2; }
 /* ================= UI ================= */
 const $=id=>document.getElementById(id);
 const wait=ms=>new Promise(r=>setTimeout(r,ms));
+/* 永続ストレージ: localStorageが使えない環境では黙って無効化 */
+const Store={
+  get(k,fb){ try{const v=localStorage.getItem("mlf_"+k); return v===null?fb:JSON.parse(v);}catch(e){return fb;} },
+  set(k,v){ try{localStorage.setItem("mlf_"+k,JSON.stringify(v));}catch(e){} },
+};
 const AIL_COLOR={brn:"#e4574a",par:"#c8a020",psn:"#9a4ad0"};
+/* 現在の実効ステータス(段階・撃破ボーナス・状態異常込み) */
+function statLine(m){
+  const arrow=s=>s>0?"↑".repeat(Math.min(s,3)):s<0?"↓".repeat(Math.min(-s,3)):"";
+  const atk=Math.floor(m.atk*stageMul(m.stA)*koMul(m)*(m.ail==="brn"?0.5:1));
+  const def=Math.floor(m.def*stageMul(m.stD)*koMul(m));
+  const spd=Math.floor(effSpd(m));
+  return "こうげき"+atk+arrow(m.stA)+" / ぼうぎょ"+def+arrow(m.stD)+" / すばやさ"+spd+arrow(m.stS);
+}
+
 /* わざの効果説明を自動生成 */
 function describeMove(mv){
   if(mv.st){
@@ -972,10 +1004,77 @@ function describeMove(mv){
   if(mv.curse) fx.push("あいてが じょうたいいじょうなら いりょく2ばい");
   if(mv.assist) fx.push("のうりょくアップの ぶんだけ いりょくぞうか");
   if(mv.pivot) fx.push("あてると ひかえと こうたいできる");
+  if(mv.sucker) fx.push("あいてが こうげきわざを だす ターンにしか せいこうしない");
   if(mv.selfFx){
     for(const s in mv.selfFx) fx.push("じぶんの "+STAT_JP[s]+(mv.selfFx[s]>0?"+":"")+mv.selfFx[s]);
   }
   return fx.join(" / ");
+}
+
+/* ---- ★6専用の固有ドット絵 ---- */
+const SPRITES6={
+ "テンマオウ":{pal:{d:"#4a3a70",p:"#9a80d8",r:"#e04848",h:"#d8c860",w:"#2a2044"},map:[
+  "................",
+  "..hh........hh..",
+  "..dh........hd..",
+  "...dddddddddd...",
+  "..dddddddddddd..",
+  "..ddrddddddrdd..",
+  ".wddddddddddddw.",
+  "wwddppppppppddww",
+  "wwddppppppppddww",
+  ".wddppppppppddw.",
+  "..dddddddddddd..",
+  "...dddddddddd...",
+  "..dd.dddddd.dd..",
+  "..d...dddd...d..",
+  ".....dd..dd.....",
+  "................"]},
+ "セイテンオウ":{pal:{w:"#f2f0f8",g:"#e0c050",b:"#7a90e0",k:"#2a3050",s:"#c8ccd8"},map:[
+  "......gggg......",
+  ".....g....g.....",
+  "......wwww......",
+  ".....wwwwww.....",
+  ".....wkwwkw.....",
+  "s....wwwwww....s",
+  "ss..wwwwwwww..ss",
+  "sssswwwbbwwwssss",
+  ".ssswwwbbwwwsss.",
+  "..sswwwwwwwwss..",
+  "...swwwwwwwws...",
+  "....wwwwwwww....",
+  "....gwwwwwwg....",
+  ".....g.ww.g.....",
+  ".......gg.......",
+  "................"]},
+ "シンカイテイ":{pal:{n:"#2a4a7a",c:"#58e0e8",l:"#6a9ad8",p:"#b8d8e8"},map:[
+  "................",
+  "....nnnnnnn.....",
+  "...nnnnnnnnn....",
+  "..nncnnnnnncnn..",
+  ".nnnnnnnnnnnnnn.",
+  ".nnpppnnnnpppnn.",
+  ".nnnnnnnnnnnnnn.",
+  "..nnlllllllnnn..",
+  "...nnllllllnn...",
+  "..c.nnllllnn.c..",
+  ".c...nnllnn...c.",
+  "......nnnn......",
+  ".....nn..nn.....",
+  "....nn....nn....",
+  ".....c....c.....",
+  "................"]},
+};
+let FIXED_SPRITES=null;
+function fixedSprite(dexId){
+  if(!FIXED_SPRITES){
+    FIXED_SPRITES={};
+    for(const nm in SPRITES6){
+      const i=DEX.findIndex(d=>d[0]===nm);
+      if(i>=0) FIXED_SPRITES[i]=SPRITES6[nm];
+    }
+  }
+  return FIXED_SPRITES[dexId];
 }
 
 /* ---- ドット絵生成(図鑑番号から決定論的に生成) ---- */
@@ -1019,6 +1118,21 @@ function getGrid(dexId){
   return gridCache[dexId]={g:g,eyeY:eyeY,eyeX:eyeX};
 }
 function drawMon(canvas,dexId,flip,sil){
+  const fs=fixedSprite(dexId);
+  if(fs){
+    const ctx=canvas.getContext("2d");
+    ctx.clearRect(0,0,16,16);
+    for(let y=0;y<16;y++){
+      const row=fs.map[y]||"";
+      for(let x=0;x<16;x++){
+        const ch=row[x];
+        if(!ch||ch===".") continue;
+        ctx.fillStyle=sil?"#3b3b4e":(fs.pal[ch]||"#888");
+        ctx.fillRect(flip?15-x:x,y,1,1);
+      }
+    }
+    return;
+  }
   const gr=getGrid(dexId);
   const d=DEX[dexId];
   const base=TYPES[d[1][0]], c2=d[1][1]?TYPES[d[1][1]]:null;
@@ -1099,8 +1213,15 @@ const App={
   tradeSel:{enemy:-1,mine:-1},
   _forcedRes:null, turn:null,
   dexSeen:new Set(), reviveUsed:{p:false,e:false},
+  playerName:"ななし", plays:0,
 
   show(id){document.querySelectorAll(".screen").forEach(s=>s.classList.remove("active"));$(id).classList.add("active");},
+  boot(){
+    this.best=Store.get("best",0);
+    this.plays=Store.get("plays",0);
+    this.playerName=Store.get("name","ななし");
+    Store.get("dex",[]).forEach(id=>this.dexSeen.add(id));
+  },
   label(mon){ return (App.epty.includes(mon)?"あいての ":"")+dispName(mon); },
   pA(){return this.party[this.pIdx];},
   eA(){return this.epty[this.eIdx];},
@@ -1116,10 +1237,20 @@ const App={
       const c=document.createElement("canvas");c.width=16;c.height=16;c.className="px";
       drawMon(c,id,false);wrap.appendChild(c);
     }
-    $("title-best").textContent=this.best>0?"さいこう れんしょう: "+this.best:"";
+    $("title-best").textContent="さいこう れんしょう: "+this.best+" / ちょうせん "+this.plays+"かい";
   },
   toTitle(){ this.init(); this.show("title-screen"); },
-  markSeen(ids){ ids.forEach(id=>this.dexSeen.add(id)); },
+  markSeen(ids){ ids.forEach(id=>this.dexSeen.add(id)); Store.set("dex",Array.from(this.dexSeen)); },
+
+  /* ---- ランキング(このブラウザ内) ---- */
+  toRank(){
+    SFX.select();
+    const rank=Store.get("rank",[]);
+    $("rank-list").innerHTML=rank.length
+      ? rank.map((r,i)=>(i+1)+"い "+r.n+"  【"+r.s+"れんしょう】  "+r.d).join("<br>")
+      : "まだ きろくが ないよ。ちょうせんして きろくを つくろう!";
+    this.show("rank-screen");
+  },
 
   /* ---- ずかん ---- */
   toDex(){
@@ -1152,7 +1283,8 @@ const App={
       +'<div><div class="nm">'+dispName(mon)+'</div>'
       +'<div class="stars">'+"★".repeat(mon.tier+1)+'</div>'
       +'<div>'+typBadges+'</div></div></div>';
-    html+='<div class="stats"><span>HP '+mon.maxHp+'</span><span>こうげき '+mon.atk+'</span><span>ぼうぎょ '+mon.def+'</span><span>すばやさ '+mon.spd+'</span></div>';
+    const km=koMul(mon);
+    html+='<div class="stats"><span>HP '+mon.maxHp+'</span><span>こうげき '+Math.floor(mon.atk*km)+'</span><span>ぼうぎょ '+Math.floor(mon.def*km)+'</span><span>すばやさ '+Math.floor(mon.spd*km)+'</span></div>';
     if(opts.showHp){
       const ailTxt=mon.ail?'<span class="ail-tag" style="background:'+AIL_COLOR[mon.ail]+'">'+AIL_JP[mon.ail]+'</span>':"";
       html+='<div class="hpline">いまのHP '+Math.max(0,mon.hp)+' / '+mon.maxHp+(mon.hp<=0?" (ひんし)":"")+ailTxt+'</div>';
@@ -1205,6 +1337,8 @@ const App={
   },
   confirmDraft(){
     SFX.select();
+    this.plays++;
+    Store.set("plays",this.plays);
     this.party=this.draftPick.map(i=>this.draftMons[i]);
     this.nextBattle();
   },
@@ -1216,8 +1350,8 @@ const App={
       ai:aiLevelForStreak(this.streak),
     };
     this.epty=genEnemyTeam(Math.random,this.streak).map(id=>makeMon(id));
-    const kb=enemyKoBonus(this.streak);
-    this.epty.forEach(m=>m.kos=kb);
+    const plan=enemyKoPlan(this.streak);
+    this.epty.forEach((m,i)=>{ m.kos=plan[i]||0; });
     this.markSeen(this.epty.map(m=>m.dexId));
     this.reviveUsed={p:false,e:false};
     this.eIdx=0;
@@ -1235,12 +1369,15 @@ const App={
     const r=RANKS[this.trainer.ai];
     await say(r.label+"トレーナーの "+this.trainer.name+"が しょうぶを しかけてきた!");
     await say("("+r.note+" タイプの あいてだ)");
-    const kb2=enemyKoBonus(this.streak);
-    if(kb2>0) await say("あいての モンスターは きたえぬかれている!(ぜんいん+"+kb2+")");
     await say(this.trainer.name+"は "+dispName(this.eA())+"を くりだした!");
+    await this.announceEnemyEntry();
     await say("ゆけっ! "+dispName(this.pA())+"!");
     this.busy=false;
     this.showMainMenu();
+  },
+  async announceEnemyEntry(){
+    const e=this.eA();
+    if(e.kos>0) await say("きたえぬかれた エースこたいだ! つよさが ちがうぞ…!(+"+e.kos+")");
   },
   drawActive(side){
     const mon=side==="p"?this.pA():this.eA();
@@ -1273,7 +1410,8 @@ const App={
   hideMenu(){$("menu").classList.remove("show");$("menu").innerHTML="";},
   showMainMenu(){
     if(this.busy)return;
-    $("msgbox").innerHTML=this.pA().name+"は どうする?";
+    $("msgbox").innerHTML=dispName(this.pA())+"は どうする?"
+      +'<div style="font-size:10px;color:#556;margin-top:3px">'+statLine(this.pA())+"</div>";
     const menu=$("menu");menu.innerHTML="";
     const foe=this.eA();
     this.pA().moves.forEach(mvName=>{
@@ -1313,6 +1451,7 @@ const App={
       b.className="btn mv-btn";
       b.disabled=m.hp<=0;
       b.innerHTML=dispName(m)+(m.ail?"("+AIL_JP[m.ail]+")":"")+'<span class="meta">HP '+Math.max(0,m.hp)+"/"+m.maxHp+" "+m.types.join("・")+"</span>"
+        +'<span class="meta">'+statLine(m)+"</span>"
         +'<span class="meta">'+m.moves.map(n=>{const v=MOVES[n];return '<span style="color:'+(TYPES[v.t]||"#999")+'">■</span>'+(v.sig?"☆":"")+n;}).join(" ")+"</span>";
       b.onclick=()=>{
         if(m.hp<=0)return;
@@ -1402,6 +1541,24 @@ const App={
     if(evs.some(e=>e.k==="revive")) this.reviveUsed[side]=true;
     await this.playEvents(evs);
     this.turn.moved[side]=true;
+    if(side==="e"&&evs.some(e=>e.k==="pivot")&&this.eA().hp>0
+       &&this.epty.some((m,i)=>i!==this.eIdx&&m.hp>0)&&!this.battleDecided()){
+      resetVolatile(this.eA());
+      await say(this.label(this.eA())+"は いきおいよく もどっていった!",200);
+      const bench=this.epty.map((m,i)=>({m:m,i:i})).filter(x=>x.i!==this.eIdx&&x.m.hp>0);
+      let best=bench[0],bs=-1;
+      for(const x of bench){
+        const dmgs=x.m.moves.filter(n=>!MOVES[n].st).map(n=>expDamage(x.m,this.pA(),n));
+        const s=dmgs.length?Math.max.apply(null,dmgs):0;
+        if(s>bs){bs=s;best=x;}
+      }
+      this.eIdx=best.i;
+      resetVolatile(this.eA());
+      SFX.swap();
+      this.drawActive("e");this.refreshHud();
+      await say(this.trainer.name+"は "+dispName(this.eA())+"を くりだした!",200);
+      await this.announceEnemyEntry();
+    }
     if(side==="p"&&evs.some(e=>e.k==="pivot")&&this.pA().hp>0
        &&this.party.some((m,i)=>i!==this.pIdx&&m.hp>0)&&!this.battleDecided()){
       await say(this.label(this.pA())+"は いきおいよく もどってきた!",120);
@@ -1458,6 +1615,7 @@ const App={
       resetVolatile(this.eA());
       await say(this.trainer.name+"は "+dispName(this.eA())+"を くりだした!");
       this.drawActive("e");this.refreshHud();
+      await this.announceEnemyEntry();
     }
     if(this.party.every(m=>m.hp<=0)){await this.defeat();return;}
     if(this.pA().hp<=0){
@@ -1476,14 +1634,14 @@ const App={
   async victory(){
     SFX.win();
     this.streak++;
-    if(this.streak>this.best)this.best=this.streak;
+    if(this.streak>this.best){ this.best=this.streak; Store.set("best",this.best); }
     $("streak-chip").textContent="れんしょう "+this.streak;
     await say(this.trainer.name+"との しょうぶに かった!");
     this.party.forEach(m=>{ if(m.hp>0){ m.hp=m.maxHp; m.ail=null; } });
     this.refreshHud();
     SFX.heal();
     await say("しょうりの よいん! たおれていない なかまは ぜんかいふくした!");
-    await say("れんしょう "+this.streak+"!! あいての モンスターと こうかん できるぞ");
+    await say("れんしょうすうは 【"+this.streak+"】になった! あいての モンスターと こうかん できるぞ");
     this.busy=false;
     this.toTrade();
   },
@@ -1491,8 +1649,16 @@ const App={
     SFX.lose();
     await say("てもちが ぜんめつした… めのまえが まっくらに なった!");
     this.busy=false;
+    let recorded=false;
+    if(this.streak>0){
+      const rank=Store.get("rank",[]);
+      rank.push({n:this.playerName||"ななし",s:this.streak,d:new Date().toLocaleDateString("ja-JP")});
+      rank.sort((a,b)=>b.s-a.s);
+      Store.set("rank",rank.slice(0,10));
+      recorded=true;
+    }
     $("result-streak").textContent=this.streak;
-    $("result-best").textContent="さいこう きろく: "+this.best+"れんしょう";
+    $("result-best").textContent="さいこう きろく: "+this.best+"れんしょう"+(recorded?" / ランキングに きろくした!":"");
     const tips=[
       "ひんしの なかまは こうかんで フレッシュな1たいと いれかえよう!",
       "タイプそうしょうを つけば ★がひくくても かちめは ある!",
@@ -1507,7 +1673,7 @@ const App={
   /* ---- 交換 ---- */
   toTrade(){
     this.tradeSel={enemy:-1,mine:-1};
-    $("trade-title").textContent="れんしょう "+this.streak+"! モンスター こうかん";
+    $("trade-title").textContent="れんしょう【"+this.streak+"】モンスター こうかん";
     const eg=$("trade-enemy");eg.innerHTML="";
     this.tradeFresh=this.epty.map(m=>makeMon(m.dexId));
     this.tradeFresh.forEach((fm,i)=>{
@@ -1552,7 +1718,13 @@ const App={
 };
 
 $("msgbox").addEventListener("click",()=>{skipFlag=true;});
+App.boot();
 App.init();
+$("pname").value=App.playerName==="ななし"?"":App.playerName;
+$("pname").addEventListener("input",()=>{
+  App.playerName=$("pname").value.trim()||"ななし";
+  Store.set("name",App.playerName);
+});
 </script>
 </body>
 </html>
