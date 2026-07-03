@@ -215,7 +215,7 @@
 
     <div id="rank-screen" class="screen dark-screen">
       <h2>れんしょうランキング</h2>
-      <div class="sub">この ブラウザに ほぞんされた トップ10</div>
+      <div class="sub" id="rank-sub">よみこみちゅう…</div>
       <div class="rules" id="rank-list" style="width:100%;line-height:2.2;"></div>
       <button class="btn main" style="width:75%" onclick="App.toTitle()">もどる</button>
     </div>
@@ -961,8 +961,36 @@ const Store={
   get(k,fb){ try{const v=localStorage.getItem("mlf_"+k); return v===null?fb:JSON.parse(v);}catch(e){return fb;} },
   set(k,v){ try{localStorage.setItem("mlf_"+k,JSON.stringify(v));}catch(e){} },
 };
+/* グローバルランキング(Firebase Realtime Database, REST API) */
+const FIREBASE_URL="https://monster-league-factory-default-rtdb.firebaseio.com";
+const CloudRank={
+  async submit(entry){
+    try{
+      const ctrl=new AbortController(); const t=setTimeout(()=>ctrl.abort(),6000);
+      const res=await fetch(FIREBASE_URL+"/ranking.json",{
+        method:"POST", body:JSON.stringify(entry), signal:ctrl.signal,
+      });
+      clearTimeout(t);
+      return res.ok;
+    }catch(e){ return false; }
+  },
+  async fetchTop(n){
+    n=n||10;
+    try{
+      const ctrl=new AbortController(); const t=setTimeout(()=>ctrl.abort(),6000);
+      const url=FIREBASE_URL+"/ranking.json?orderBy=%22s%22&limitToLast="+Math.max(n,50);
+      const res=await fetch(url,{signal:ctrl.signal});
+      clearTimeout(t);
+      if(!res.ok) return null;
+      const data=await res.json();
+      if(!data) return [];
+      return Object.values(data).sort((a,b)=>b.s-a.s).slice(0,n);
+    }catch(e){ return null; }
+  },
+};
 const AIL_COLOR={brn:"#e4574a",par:"#c8a020",psn:"#9a4ad0"};
 /* 現在の実効ステータス(段階・撃破ボーナス・状態異常込み) */
+function esc(s){ return String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
 function statLine(m){
   const arrow=s=>s>0?"↑".repeat(Math.min(s,3)):s<0?"↓".repeat(Math.min(-s,3)):"";
   const atk=Math.floor(m.atk*stageMul(m.stA)*koMul(m)*(m.ail==="brn"?0.5:1));
@@ -1243,13 +1271,19 @@ const App={
   markSeen(ids){ ids.forEach(id=>this.dexSeen.add(id)); Store.set("dex",Array.from(this.dexSeen)); },
 
   /* ---- ランキング(このブラウザ内) ---- */
-  toRank(){
+  async toRank(){
     SFX.select();
-    const rank=Store.get("rank",[]);
-    $("rank-list").innerHTML=rank.length
-      ? rank.map((r,i)=>(i+1)+"い "+r.n+"  【"+r.s+"れんしょう】  "+r.d).join("<br>")
-      : "まだ きろくが ないよ。ちょうせんして きろくを つくろう!";
+    $("rank-list").innerHTML="よみこみちゅう…";
     this.show("rank-screen");
+    const cloud=await CloudRank.fetchTop(10);
+    const renderList=(list,label)=>{
+      $("rank-sub").textContent=label;
+      $("rank-list").innerHTML=list.length
+        ? list.map((r,i)=>(i+1)+"い "+esc(r.n)+"  【"+r.s+"れんしょう】  "+esc(r.d||"")).join("<br>")
+        : "まだ きろくが ないよ。ちょうせんして きろくを つくろう!";
+    };
+    if(cloud!==null) renderList(cloud,"ぜんこく ランキング(みんなの きろく)");
+    else renderList(Store.get("rank",[]),"このブラウザの きろく(つうしん しっぱい)");
   },
 
   /* ---- ずかん ---- */
@@ -1651,14 +1685,16 @@ const App={
     this.busy=false;
     let recorded=false;
     if(this.streak>0){
+      const entry={n:(this.playerName||"ななし").slice(0,8),s:this.streak,d:new Date().toLocaleDateString("ja-JP")};
       const rank=Store.get("rank",[]);
-      rank.push({n:this.playerName||"ななし",s:this.streak,d:new Date().toLocaleDateString("ja-JP")});
+      rank.push(entry);
       rank.sort((a,b)=>b.s-a.s);
       Store.set("rank",rank.slice(0,10));
       recorded=true;
+      CloudRank.submit(entry); // 失敗しても無視(ローカルには残る)
     }
     $("result-streak").textContent=this.streak;
-    $("result-best").textContent="さいこう きろく: "+this.best+"れんしょう"+(recorded?" / ランキングに きろくした!":"");
+    $("result-best").textContent="さいこう きろく: "+this.best+"れんしょう"+(recorded?" / ランキングに そうしんした!":"");
     const tips=[
       "ひんしの なかまは こうかんで フレッシュな1たいと いれかえよう!",
       "タイプそうしょうを つけば ★がひくくても かちめは ある!",
