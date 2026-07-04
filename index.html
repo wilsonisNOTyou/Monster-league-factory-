@@ -83,6 +83,19 @@
   .dex-cell .dn{font-size:8px;line-height:1.3;}
   .dex-cell .no{font-size:7px;color:#667;}
   .dex-cell.unseen{opacity:.8;}
+  #dex-modal{display:none;position:fixed;inset:0;background:rgba(10,10,20,.7);z-index:50;align-items:center;justify-content:center;padding:16px;}
+  #dex-modal.show{display:flex;}
+  #dex-modal .card{max-width:340px;width:100%;cursor:default;max-height:82vh;overflow:auto;}
+  .mv-detail{font-size:10px;background:#fff;border:1px solid #999;border-radius:4px;padding:4px 6px;margin-top:4px;line-height:1.6;}
+  .ach-list{width:100%;display:flex;flex-direction:column;gap:5px;max-height:58vh;overflow:auto;}
+  .ach-row{display:flex;gap:9px;align-items:center;background:rgba(255,255,255,.06);border:1px solid #445;border-radius:6px;padding:6px 10px;text-align:left;}
+  .ach-row.got{border-color:#c8960c;background:rgba(232,201,63,.09);}
+  .ach-row .ic{font-size:16px;flex:none;}
+  .ach-row .nm2{font-size:12px;color:#ffd75e;}
+  .ach-row.lock .nm2{color:#8890a8;}
+  .ach-row .ds{font-size:9px;color:#aab;line-height:1.5;}
+  #ach-toast{position:fixed;top:10px;left:50%;transform:translate(-50%,-160%);transition:transform .3s;background:#2a2a4a;color:#ffd75e;border:2px solid #c8960c;border-radius:8px;padding:8px 16px;font-size:12px;z-index:99;box-shadow:0 4px 16px rgba(0,0,0,.5);white-space:nowrap;}
+  #ach-toast.show{transform:translate(-50%,0);}
 
   #battle-screen{background:var(--panel);}
   #field{
@@ -158,6 +171,10 @@
       <button class="btn main" style="width:75%" onclick="App.toDraft()">▶ ちょうせん スタート</button>
       <button class="btn main" style="width:75%" onclick="App.toDex()">ずかんを みる</button>
       <button class="btn main" style="width:75%" onclick="App.toRank()">れんしょうランキング</button>
+      <div class="fixedbar" style="width:75%">
+        <button class="btn main" onclick="App.toAch()">じっせき</button>
+        <button class="btn main" onclick="App.toNotes()">おしらせ</button>
+      </div>
       <div class="sub" id="title-best"></div>
       <div class="sub blink">PUSH START</div>
     </div>
@@ -203,7 +220,7 @@
       <div class="note" id="trade-note">もらう1たいと だす1たいを えらんでね</div>
       <div class="fixedbar">
         <button class="btn main" id="trade-ok" disabled onclick="App.doTrade()">こうかんする</button>
-        <button class="btn main" onclick="App.skipTrade()">こうかんしない ▶</button>
+        <button class="btn main" id="trade-skip" onclick="App.skipTrade()">こうかんしない ▶</button>
       </div>
     </div>
 
@@ -211,6 +228,27 @@
       <h2 id="dex-title">モンスターずかん</h2>
       <div class="dex-grid" id="dex-grid"></div>
       <button class="btn main" onclick="App.toTitle()">もどる</button>
+    </div>
+
+    <div id="hof-screen" class="screen dark-screen">
+      <h2>🏆 でんどういり!</h2>
+      <div class="sub" id="hof-sub"></div>
+      <div class="cardgrid" id="hof-party" style="width:100%"></div>
+      <p class="rules" id="hof-text" style="width:100%"></p>
+      <button class="btn main" style="width:75%" id="hof-btn">すすむ ▶</button>
+    </div>
+
+    <div id="ach-screen" class="screen dark-screen">
+      <h2>じっせき</h2>
+      <div class="sub" id="ach-rate"></div>
+      <div class="ach-list" id="ach-list"></div>
+      <button class="btn main" style="width:75%" onclick="App.toTitle()">もどる</button>
+    </div>
+
+    <div id="notes-screen" class="screen dark-screen">
+      <h2>こうしんじょうほう</h2>
+      <div class="rules" id="notes-list" style="width:100%;line-height:1.9;"></div>
+      <button class="btn main" style="width:75%" onclick="App.toTitle()">もどる</button>
     </div>
 
     <div id="rank-screen" class="screen dark-screen">
@@ -230,6 +268,8 @@
     </div>
 
   </div>
+  <div id="dex-modal"></div>
+  <div id="ach-toast"></div>
   <footer>MONSTER LEAGUE FACTORY — 100たい すべて オリジナル</footer>
 </div>
 
@@ -747,7 +787,9 @@ function resolveMove(user,tgt,name,rng,ctx){
     ev.push({k:"msg",t:L(tgt)+"には こうかが ない ようだ…"});
     return ev;
   }
+  const hpBefore=tgt.hp;
   tgt.hp=Math.max(0,tgt.hp-r.dmg);
+  const dealt=hpBefore-tgt.hp;   /* 実際に与えたダメージ(反動・吸収の基準) */
   ev.push({k:"fx",f:"hit",mon:tgt,mult:r.mult,crit:r.crit});
   if(r.crit) ev.push({k:"msg",t:"きゅうしょに あたった!"});
   if(r.mult>1) ev.push({k:"msg",t:"こうかは ばつぐんだ!"});
@@ -766,11 +808,11 @@ function resolveMove(user,tgt,name,rng,ctx){
     }
   }
   if(mv.drain){
-    const amt=Math.min(user.maxHp-user.hp,Math.max(1,Math.floor(r.dmg/2)));
+    const amt=Math.min(user.maxHp-user.hp,Math.max(1,Math.floor(dealt/2)));
     if(amt>0){ user.hp+=amt; ev.push({k:"fx",f:"heal",mon:user}); ev.push({k:"msg",t:L(tgt)+"から たいりょくを すいとった!"}); }
   }
   if(mv.recoil){
-    user.hp=Math.max(0,user.hp-Math.max(1,Math.floor(r.dmg/mv.recoil)));
+    user.hp=Math.max(0,user.hp-Math.max(1,Math.floor(dealt/mv.recoil)));
     ev.push({k:"fx",f:"chip",mon:user});
     ev.push({k:"msg",t:L(user)+"は はんどうで ダメージを うけた!"});
   }
@@ -989,8 +1031,103 @@ const CloudRank={
   },
 };
 const AIL_COLOR={brn:"#e4574a",par:"#c8a020",psn:"#9a4ad0"};
+/* ============ 実績 ============ */
+const ACH=[
+ {id:"play1",name:"はじめのいっぽ",desc:"はじめて ちょうせんする"},
+ {id:"play5",name:"かよいはじめ",desc:"5かい ちょうせんする"},
+ {id:"play10",name:"じょうれんさん",desc:"10かい ちょうせんする"},
+ {id:"play30",name:"ファクトリーのぬし",desc:"30かい ちょうせんする"},
+ {id:"win1",name:"はじめてのしょうり",desc:"はじめて バトルに かつ"},
+ {id:"streak5",name:"かちぐせ",desc:"5れんしょうする"},
+ {id:"streak10",name:"とまらない",desc:"10れんしょうする"},
+ {id:"streak20",name:"れんしょうがい",desc:"20れんしょうする"},
+ {id:"hof30",name:"でんせつのトレーナー",desc:"30れんしょうして でんどういりする"},
+ {id:"ally4",name:"エリートかにゅう",desc:"★4を なかまにする"},
+ {id:"ally5",name:"おうのけいやく",desc:"★5を なかまにする"},
+ {id:"ally6",name:"まぼろしと ともに",desc:"★6を なかまにする"},
+ {id:"dex50",name:"かけだしはかせ",desc:"50たいの モンスターに であう"},
+ {id:"dex80",name:"いっぱしのはかせ",desc:"80たいの モンスターに であう"},
+ {id:"dex100",name:"だいはかせ",desc:"100たいの モンスターに であう"},
+ {id:"dexcomp",name:"ずかんコンプリート",desc:"すべての モンスターを はっけんする"},
+ {id:"max1",name:"げんかいとっぱ",desc:"みかたを maxじょうたいにする"},
+ {id:"max3",name:"さいきょうぐんだん",desc:"みかた3たい ぜんいんを maxにする"},
+ {id:"all5",name:"オールスター",desc:"みかた3たいとも ★5いじょうにする"},
+ {id:"same3",name:"トリプルコレクター",desc:"みかた3たいとも おなじモンスターにする"},
+ {id:"traits3",name:"とくせいマニア",desc:"3たいとも たいりょくじまんか せいちょうじまんにする"},
+ {id:"revive1",name:"おうのきせき",desc:"わざで なかまを ふっかつさせる"},
+ {id:"sweep",name:"かんぺきなせいちょう",desc:"きょうかなしの モンスターを 1かいのたいせんで maxにする"},
+ {id:"rank1",name:"ちょうせんしゃ",desc:"ランキングに きろくを のこす"},
+ {id:"allach",name:"コンプリートマスター",desc:"すべての じっせきを かいじょする"},
+];
+const toastQ=[];let toastBusy=false;
+function toast(t){
+  toastQ.push(t);
+  if(toastBusy)return;
+  toastBusy=true;
+  (async()=>{
+    const el=$("ach-toast");
+    while(toastQ.length){
+      el.textContent="🏆 "+toastQ.shift();
+      el.classList.add("show");
+      await wait(2200);
+      el.classList.remove("show");
+      await wait(300);
+    }
+    toastBusy=false;
+  })();
+}
+const Ach={
+  data:{},
+  load(){ this.data=Store.get("ach",{}); },
+  has(id){ return !!this.data[id]; },
+  count(){ return ACH.filter(a=>this.data[a.id]).length; },
+  unlock(id,silent){
+    if(this.data[id]) return;
+    const a=ACH.find(x=>x.id===id);
+    if(!a) return;
+    this.data[id]=new Date().toLocaleDateString("ja-JP");
+    if(!silent) toast("じっせきかいじょ「"+a.name+"」");
+    if(id!=="allach"&&ACH.filter(x=>x.id!=="allach").every(x=>this.data[x.id])){
+      this.data.allach=new Date().toLocaleDateString("ja-JP");
+      if(!silent) toast("じっせきかいじょ「コンプリートマスター」");
+    }
+    Store.set("ach",this.data);
+  },
+};
+
+/* ============ 更新情報 ============ */
+const PATCH_NOTES=[
+ {d:"7月4日 更新情報",items:[
+  "ランキング機能を追加しました。ゲーム開始時に入力したプレイヤー名、連勝数、日付が記録されます。他のプレイヤーの記録も見ることが出来ます。",
+  "実績機能を追加しました。",
+  "パッチノートを追加しました。更新の内容が確認できます。",
+  "ブラウザを閉じると図鑑が消える不具合を修正しました。",
+  "技選択時、交代時にステータスを見れるようにしました。ステータスは能力上昇を反映させた実数値を表記するように変更しました。",
+  "強化済みモンスターの出現頻度を調整しました。",
+  "図鑑クリックでステータス、技の説明を見られるようにしました。",
+  "ランキングにおいて同じ名前の記録は2個までしか表示されないようにしました。(名無しは除く)",
+  "反動技、吸収技は与えたダメージを基準として反動量、回復量が決まるようになりました。",
+  "たいりょくじまん、せいちょうじまんの個体が相手に出てきた際、固有のメッセージが出るようにしました。",
+  "30連勝すると殿堂入り演出が出るようにしました。",
+ ]},
+];
+
 /* 現在の実効ステータス(段階・撃破ボーナス・状態異常込み) */
 function esc(s){ return String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
+/* 同じ名前は2件まで表示(「ななし」は例外)。データ自体は消さない表示側フィルタ */
+function filterRank(list){
+  const cnt={},out=[];
+  for(const r of (list||[])){
+    const key=r.n||"ななし";
+    if(key!=="ななし"){
+      cnt[key]=(cnt[key]||0)+1;
+      if(cnt[key]>2) continue;
+    }
+    out.push(r);
+    if(out.length>=10) break;
+  }
+  return out;
+}
 function statLine(m){
   const arrow=s=>s>0?"↑".repeat(Math.min(s,3)):s<0?"↓".repeat(Math.min(-s,3)):"";
   const atk=Math.floor(m.atk*stageMul(m.stA)*koMul(m)*(m.ail==="brn"?0.5:1));
@@ -1064,16 +1201,33 @@ const SPRITES6={
   "......wwww......",
   ".....wwwwww.....",
   ".....wkwwkw.....",
-  "s....wwwwww....s",
+  "ss..wwwwwwww..ss",
   "ss..wwwwwwww..ss",
   "sssswwwbbwwwssss",
   ".ssswwwbbwwwsss.",
   "..sswwwwwwwwss..",
   "...swwwwwwwws...",
-  "....wwwwwwww....",
+  "...wwwwwwwwww...",
   "....gwwwwwwg....",
-  ".....g.ww.g.....",
+  "....g.wwww.g....",
   ".......gg.......",
+  "................"]},
+ "ライジンガー":{pal:{y:"#f2d13e",w:"#fdfdf0",b:"#5a9ae8",k:"#2a2410"},map:[
+  "................",
+  "................",
+  "....w......w....",
+  "...wy......yw...",
+  "....yyyyyyyy....",
+  "...yyyyyyyyyy...",
+  "..yyykyyyykyyy..",
+  "..yyyywwwwyyyy..",
+  "...yyyyyyyyyy...",
+  ".w..yyybbyyy..w.",
+  "..w.yybbbbyy.w..",
+  ".w..yyybbyyy..w.",
+  "....yyyyyyyy....",
+  "...yy.yyyy.yy...",
+  "....w......w....",
   "................"]},
  "シンカイテイ":{pal:{n:"#2a4a7a",c:"#58e0e8",l:"#6a9ad8",p:"#b8d8e8"},map:[
   "................",
@@ -1118,29 +1272,26 @@ function getGrid(dexId){
   const rnd=mulberry32(dexId*2654435+101);
   const S=16;
   let g=Array.from({length:S},()=>Array(S).fill(0));
-  const bulk={1:.78,2:.84,3:.90,4:.96}[tier];
+  /* ★の段階でサイズが変わる: ★2<★3<★4<★5(<★6固有絵) */
+  const R={1:2.8,2:3.4,3:4.1,4:4.9}[tier];
   for(let y=2;y<=13;y++)for(let x=2;x<=7;x++){
-    const dx=(x-7.5)/5.5, dy=(y-8)/6.5;
-    if(rnd()<bulk-Math.hypot(dx,dy)*0.95) g[y][x]=1;
+    const dx=(x-7.5)/R, dy=(y-8)/(R*1.15);
+    const dist=Math.hypot(dx,dy);
+    if(dist<0.78) g[y][x]=1;                 /* 確定コア */
+    else if(dist<1.25&&rnd()<0.55) g[y][x]=1; /* ランダムな縁 */
   }
-  for(let it=0;it<2;it++){
+  {
     const ng=g.map(r=>r.slice());
     for(let y=1;y<15;y++)for(let x=1;x<=7;x++){
       let c=0;
       for(let dy=-1;dy<=1;dy++)for(let dx=-1;dx<=1;dx++)c+=g[y+dy][x+dx];
-      ng[y][x]=c>=5?1:(c<=2?0:g[y][x]);
+      ng[y][x]=c>=5?1:(c<=1?0:g[y][x]);
     }
     g=ng;
   }
   for(let y=0;y<S;y++)for(let x=0;x<=7;x++) g[y][15-x]=g[y][x];
-  let cnt=0; g.forEach(r=>r.forEach(v=>cnt+=v));
-  if(cnt<26){
-    for(let y=5;y<=12;y++)for(let x=3;x<=12;x++){
-      if(Math.hypot((x-7.5)/4.5,(y-8.5)/4)<1) g[y][x]=1;
-    }
-  }
   let eyeY=7;
-  for(let y=2;y<14;y++){ if(g[y].reduce((a,b)=>a+b,0)>=6){ eyeY=clamp(y+2,4,10); break; } }
+  for(let y=2;y<14;y++){ if(g[y].reduce((a,b)=>a+b,0)>=4){ eyeY=clamp(y+2,4,10); break; } }
   let eyeX=5;
   for(const x of [5,4,6,3]){ if(g[eyeY][x]){ eyeX=x; break; } }
   return gridCache[dexId]={g:g,eyeY:eyeY,eyeX:eyeX};
@@ -1245,10 +1396,34 @@ const App={
 
   show(id){document.querySelectorAll(".screen").forEach(s=>s.classList.remove("active"));$(id).classList.add("active");},
   boot(){
+    Ach.load();
     this.best=Store.get("best",0);
     this.plays=Store.get("plays",0);
     this.playerName=Store.get("name","ななし");
     Store.get("dex",[]).forEach(id=>this.dexSeen.add(id));
+    this.syncAchFromRecords();
+  },
+  /* これまでの記録(プレイ回数・最高連勝・図鑑・ランキング)から実績を遡って解除 */
+  syncAchFromRecords(){
+    const before=Ach.count();
+    const q=id=>Ach.unlock(id,true);
+    if(this.plays>=1) q("play1");
+    if(this.plays>=5) q("play5");
+    if(this.plays>=10) q("play10");
+    if(this.plays>=30) q("play30");
+    if(this.best>=1) q("win1");
+    if(this.best>=5) q("streak5");
+    if(this.best>=10) q("streak10");
+    if(this.best>=20) q("streak20");
+    if(this.best>=30) q("hof30");
+    const n=this.dexSeen.size;
+    if(n>=50) q("dex50");
+    if(n>=80) q("dex80");
+    if(n>=100) q("dex100");
+    if(n>=DEX.length) q("dexcomp");
+    if(Store.get("rank",[]).length>0) q("rank1");
+    const gained=Ach.count()-before;
+    if(gained>0) toast("これまでのきろくから じっせきを "+gained+"けん かいじょ!");
   },
   label(mon){ return (App.epty.includes(mon)?"あいての ":"")+dispName(mon); },
   pA(){return this.party[this.pIdx];},
@@ -1268,23 +1443,98 @@ const App={
     $("title-best").textContent="さいこう れんしょう: "+this.best+" / ちょうせん "+this.plays+"かい";
   },
   toTitle(){ this.init(); this.show("title-screen"); },
-  markSeen(ids){ ids.forEach(id=>this.dexSeen.add(id)); Store.set("dex",Array.from(this.dexSeen)); },
+  markSeen(ids){
+    ids.forEach(id=>this.dexSeen.add(id));
+    Store.set("dex",Array.from(this.dexSeen));
+    const n=this.dexSeen.size;
+    if(n>=50) Ach.unlock("dex50");
+    if(n>=80) Ach.unlock("dex80");
+    if(n>=100) Ach.unlock("dex100");
+    if(n>=DEX.length) Ach.unlock("dexcomp");
+  },
+
+  /* ---- じっせき ---- */
+  toAch(){
+    SFX.select();
+    const n=Ach.count();
+    $("ach-rate").textContent="たっせいりつ "+n+" / "+ACH.length+" ("+Math.floor(100*n/ACH.length)+"%)";
+    const list=$("ach-list"); list.innerHTML="";
+    for(const a of ACH){
+      const got=Ach.has(a.id);
+      const row=document.createElement("div");
+      row.className="ach-row "+(got?"got":"lock");
+      row.innerHTML='<span class="ic">'+(got?"🏆":"🔒")+'</span><div><div class="nm2">'+a.name+'</div><div class="ds">'+a.desc+(got?" ("+Ach.data[a.id]+" かいじょ)":"")+"</div></div>";
+      list.appendChild(row);
+    }
+    this.show("ach-screen");
+  },
+  checkPartyAch(){
+    const p=this.party;
+    if(!p||!p.length) return;
+    if(p.some(m=>m.tier===3)) Ach.unlock("ally4");
+    if(p.some(m=>m.tier===4)) Ach.unlock("ally5");
+    if(p.some(m=>m.tier===5)) Ach.unlock("ally6");
+    if(p.length===3){
+      if(p.every(m=>m.tier>=4)) Ach.unlock("all5");
+      if(p.every(m=>m.dexId===p[0].dexId)) Ach.unlock("same3");
+      if(p.every(m=>m.tough||m.growth)) Ach.unlock("traits3");
+    }
+  },
+  checkMaxAch(){
+    for(const m of this.party){
+      if(m.maxBoost){
+        Ach.unlock("max1");
+        if((m._startKos||0)===0) Ach.unlock("sweep");
+      }
+    }
+    if(this.party.length===3&&this.party.every(m=>m.maxBoost)) Ach.unlock("max3");
+  },
+
+  /* ---- こうしんじょうほう ---- */
+  toNotes(){
+    SFX.select();
+    $("notes-list").innerHTML=PATCH_NOTES.map(p=>'<b style="color:#ffd75e">'+esc(p.d)+"</b><br>"+p.items.map(t=>"・"+esc(t)).join("<br>")).join("<br><br>");
+    this.show("notes-screen");
+  },
 
   /* ---- ランキング(このブラウザ内) ---- */
   async toRank(){
     SFX.select();
     $("rank-list").innerHTML="よみこみちゅう…";
     this.show("rank-screen");
-    const cloud=await CloudRank.fetchTop(10);
+    const cloud=await CloudRank.fetchTop(60);
     const renderList=(list,label)=>{
       $("rank-sub").textContent=label;
       $("rank-list").innerHTML=list.length
         ? list.map((r,i)=>(i+1)+"い "+esc(r.n)+"  【"+r.s+"れんしょう】  "+esc(r.d||"")).join("<br>")
         : "まだ きろくが ないよ。ちょうせんして きろくを つくろう!";
     };
-    if(cloud!==null) renderList(cloud,"ぜんこく ランキング(みんなの きろく)");
-    else renderList(Store.get("rank",[]),"このブラウザの きろく(つうしん しっぱい)");
+    if(cloud!==null) renderList(filterRank(cloud),"ぜんこく ランキング(みんなの きろく)");
+    else renderList(filterRank(Store.get("rank",[])),"このブラウザの きろく(つうしん しっぱい)");
   },
+
+  /* ---- ずかん詳細 ---- */
+  showDexDetail(i){
+    SFX.select();
+    const mon=makeMon(i,()=>0.99);   /* 代表個体(特性ロールなし) */
+    const card=this.buildCard(mon,{});
+    card.onclick=e=>e.stopPropagation();
+    const det=mon.moves.map(n=>{
+      const v=MOVES[n];
+      const head=(v.sig?'<span style="color:#c8960c">☆</span>':"")+n
+        +' <span style="color:'+(TYPES[v.t]||"#999")+'">■</span>'+v.t
+        +(v.st?" へんかわざ":" いりょく"+v.p+(v.assist?"+":"")+" めいちゅう"+(v.sure?"必中":v.a));
+      const d=describeMove(v);
+      return '<div class="mv-detail">'+head+(d?'<br><span style="color:#38603a">'+d+"</span>":"")+"</div>";
+    }).join("");
+    card.insertAdjacentHTML("beforeend",det);
+    card.insertAdjacentHTML("beforeend",'<button class="btn main" style="width:100%;margin-top:8px" onclick="App.closeDexDetail()">とじる</button>');
+    const wrap=$("dex-modal");
+    wrap.innerHTML=""; wrap.appendChild(card);
+    wrap.onclick=()=>this.closeDexDetail();
+    wrap.classList.add("show");
+  },
+  closeDexDetail(){ $("dex-modal").classList.remove("show"); },
 
   /* ---- ずかん ---- */
   toDex(){
@@ -1300,6 +1550,7 @@ const App={
         +'<div class="dn">'+(seen?DEX[i][0]:"???")+'</div>'
         +'<div class="dn" style="color:#c8960c">'+(seen?"★".repeat(tierOf(i)+1):"&nbsp;")+'</div>';
       drawMon(cell.querySelector("canvas"),i,false,!seen);
+      if(seen){ const idx=i; cell.onclick=()=>this.showDexDetail(idx); }
       grid.appendChild(cell);
     }
     this.show("dex-screen");
@@ -1373,7 +1624,12 @@ const App={
     SFX.select();
     this.plays++;
     Store.set("plays",this.plays);
+    Ach.unlock("play1");
+    if(this.plays>=5) Ach.unlock("play5");
+    if(this.plays>=10) Ach.unlock("play10");
+    if(this.plays>=30) Ach.unlock("play30");
     this.party=this.draftPick.map(i=>this.draftMons[i]);
+    this.checkPartyAch();
     this.nextBattle();
   },
 
@@ -1385,12 +1641,13 @@ const App={
     };
     this.epty=genEnemyTeam(Math.random,this.streak).map(id=>makeMon(id));
     const plan=enemyKoPlan(this.streak);
-    this.epty.forEach((m,i)=>{ m.kos=plan[i]||0; });
+    this.epty.forEach((m,i)=>{ m.kos=plan[i]||0; m.baseBonus=plan[i]||0; });
     this.markSeen(this.epty.map(m=>m.dexId));
     this.reviveUsed={p:false,e:false};
     this.eIdx=0;
     this.pIdx=this.party.findIndex(m=>m.hp>0);
     this.party.forEach(resetVolatile);
+    this.party.forEach(m=>{ m._startKos=m.kos||0; });
     this.startBattle();
   },
   async startBattle(){
@@ -1411,7 +1668,13 @@ const App={
   },
   async announceEnemyEntry(){
     const e=this.eA();
-    if(e.kos>0) await say("きたえぬかれた エースこたいだ! つよさが ちがうぞ…!(+"+e.kos+")");
+    if(e.introduced) return;      /* 交代技での再登場では くりかえさない */
+    e.introduced=true;
+    const aces=enemyKoPlan(this.streak).filter(b=>b>0).length;
+    if((e.baseBonus||0)>0&&aces===1)
+      await say("きたえぬかれた エースこたいだ! つよさが ちがうぞ…!(+"+e.kos+")");
+    if(e.tough) await say("あいての "+dispName(e)+"は たいりょくじまん! HPが 1.3ばいだ!");
+    if(e.growth) await say("あいての "+dispName(e)+"は せいちょうじまん! たおすたびに 2だんかい つよくなるぞ!");
   },
   drawActive(side){
     const mon=side==="p"?this.pA():this.eA();
@@ -1572,7 +1835,7 @@ const App={
     const ctx={label:this.label,tgtMoved:this.turn.moved[other],tgtAttacking:otherAttacking,
       allies:side==="p"?this.party:this.epty,canRevive:!this.reviveUsed[side],canMax:side==="p"};
     const evs=resolveMove(user,tgt,name,Math.random,ctx);
-    if(evs.some(e=>e.k==="revive")) this.reviveUsed[side]=true;
+    if(evs.some(e=>e.k==="revive")){ this.reviveUsed[side]=true; if(side==="p") Ach.unlock("revive1"); }
     await this.playEvents(evs);
     this.turn.moved[side]=true;
     if(side==="e"&&evs.some(e=>e.k==="pivot")&&this.eA().hp>0
@@ -1643,6 +1906,7 @@ const App={
     }
   },
   async afterTurn(){
+    this.checkMaxAch();
     if(this.epty.every(m=>m.hp<=0)){await this.victory();return;}
     if(this.eA().hp<=0){
       this.eIdx=this.epty.findIndex(m=>m.hp>0);
@@ -1664,11 +1928,35 @@ const App={
     this.showMainMenu();
   },
 
+  /* ---- 殿堂入り(30連勝) ---- */
+  showHof(){
+    SFX.win();
+    Ach.unlock("hof30");
+    $("hof-sub").textContent=(this.playerName||"ななし")+" と なかまたち / "+new Date().toLocaleDateString("ja-JP");
+    const grid=$("hof-party"); grid.innerHTML="";
+    this.party.forEach(m=>grid.appendChild(this.buildCard(m,{showHp:true})));
+    $("hof-text").textContent="30れんしょう たっせい!! きみたちの きろくは でんどうに きざまれた!";
+    const btn=$("hof-btn");
+    btn.textContent="すすむ ▶";
+    btn.onclick=()=>{
+      SFX.select();
+      $("hof-text").textContent="……ここから さきは、まぼろしの モンスターに あえるかも……?";
+      btn.textContent="31せんめへ ▶";
+      btn.onclick=()=>{ SFX.select(); this.toTrade(); };
+    };
+    this.show("hof-screen");
+  },
+
   /* ---- 勝敗 ---- */
   async victory(){
     SFX.win();
     this.streak++;
     if(this.streak>this.best){ this.best=this.streak; Store.set("best",this.best); }
+    Ach.unlock("win1");
+    if(this.streak>=5) Ach.unlock("streak5");
+    if(this.streak>=10) Ach.unlock("streak10");
+    if(this.streak>=20) Ach.unlock("streak20");
+    this.checkMaxAch();
     $("streak-chip").textContent="れんしょう "+this.streak;
     await say(this.trainer.name+"との しょうぶに かった!");
     this.party.forEach(m=>{ if(m.hp>0){ m.hp=m.maxHp; m.ail=null; } });
@@ -1677,6 +1965,7 @@ const App={
     await say("しょうりの よいん! たおれていない なかまは ぜんかいふくした!");
     await say("れんしょうすうは 【"+this.streak+"】になった! あいての モンスターと こうかん できるぞ");
     this.busy=false;
+    if(this.streak===30){ this.showHof(); return; }
     this.toTrade();
   },
   async defeat(){
@@ -1691,6 +1980,7 @@ const App={
       rank.sort((a,b)=>b.s-a.s);
       Store.set("rank",rank.slice(0,10));
       recorded=true;
+      Ach.unlock("rank1");
       CloudRank.submit(entry); // 失敗しても無視(ローカルには残る)
     }
     $("result-streak").textContent=this.streak;
@@ -1733,6 +2023,7 @@ const App={
     document.querySelectorAll("#trade-mine .card").forEach(c=>c.classList.toggle("sel",+c.dataset.i===this.tradeSel.mine));
     const ok=this.tradeSel.enemy>=0&&this.tradeSel.mine>=0;
     $("trade-ok").disabled=!ok;
+    $("trade-skip").disabled=this.tradeSel.enemy>=0||this.tradeSel.mine>=0;  /* 誤爆防止 */
     $("trade-note").textContent=ok
       ?this.party[this.tradeSel.mine].name+" を だして "+this.epty[this.tradeSel.enemy].name+" を もらう"
       :"もらう1たいと だす1たいを えらんでね";
@@ -1740,6 +2031,7 @@ const App={
   doTrade(){
     SFX.heal();
     this.party[this.tradeSel.mine]=this.tradeFresh[this.tradeSel.enemy];
+    this.checkPartyAch();
     this.nextBattle();
   },
   skipTrade(){
