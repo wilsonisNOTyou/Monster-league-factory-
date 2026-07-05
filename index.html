@@ -168,6 +168,7 @@
         ・れんしょう20から★5かくてい、30こえで まぼろしの★6!?
       </div>
       <div class="sub">なまえ: <input id="pname" maxlength="8" placeholder="ななし"></div>
+      <button class="btn main" style="width:75%;display:none" id="resume-btn" onclick="App.resumeRun()">つづきから</button>
       <button class="btn main" style="width:75%" onclick="App.toDraft()">▶ ちょうせん スタート</button>
       <button class="btn main" style="width:75%" onclick="App.toDex()">ずかんを みる</button>
       <button class="btn main" style="width:75%" onclick="App.toRank()">れんしょうランキング</button>
@@ -176,6 +177,7 @@
         <button class="btn main" onclick="App.toNotes()">おしらせ</button>
       </div>
       <div class="sub" id="title-best"></div>
+      <div class="sub" id="title-global"></div>
       <div class="sub blink">PUSH START</div>
     </div>
 
@@ -418,6 +420,12 @@ const MOVES={
 const SIG={"ムテキオー":"おうのいのり","グレンオウ":"グレンヴォルケーノ","リヴァイア":"アビスドレイン","ライジンガー":"らいじんしっぷう","シンリンオウ":"じゅかいのじゅばく","ゼッタイレイ":"ぜったいれいとう","ゴウテツオー":"とうこんラッシュ","ガイアドン":"ガイアインパクト","テンクウオウ":"はおうのまい","ムゲンノウ":"ぜったいバリア","マガツオー":"まがつのほむら","リュウテイ":"ていおうざん","マオウガ":"まおうのぎしき"};
 /* 交代攻撃(当てると控えと交代)の固定習得: 一部の水・電 */
 const PIVOT={"アワッコ":"スピンリターン","サメガブ":"スピンリターン","シャチドン":"スピンリターン","ウミボウズ":"スピンリターン","ビリッコ":"エレキリレー","デンチュリ":"エレキリレー","プラズマル":"エレキリレー","ヘキレキ":"エレキリレー"};
+/* 個別のわざ調整 */
+const MOVE_FIX={
+ "ムゲンノウ":[["ねんのやいば","ブーストパワー"]],
+ "ライジンガー":[["100まんボルト","エレキリレー"]],
+ "ゴウテツオー":[["パンプアップ","ひとやすみ"]],
+};
 /* ★6のせんようわざ割り当て(各2つ) */
 const SIG6={"テンマオウ":["てんまのほうこう","じげんざん"],"セイテンオウ":["セイテンショウ","しんせいのまい"],"シンカイテイ":["うらみのしおざい","シンカイスパイク"]};
 
@@ -504,7 +512,7 @@ const DEX=[
 ["カブチャマ",["くさ","れい"],70,80,70,65],
 ["ジュモクオー",["くさ"],95,80,95,50],
 ["セコイヤン",["くさ"],90,90,80,60],
-["シンリンオウ",["くさ"],95,95,90,75],
+["シンリンオウ",["くさ"],95,90,100,70],
 ["ユキンコ",["こおり"],55,55,55,80],
 ["コゴエル",["こおり"],60,60,60,65],
 ["フブキマル",["こおり"],70,80,65,75],
@@ -614,6 +622,11 @@ function genMoves(id){
       else if(!atkUsed){ mv[0]=sn; atkUsed=true; }
       else mv[2]=sn;
     }
+  }
+  const fixes=MOVE_FIX[d[0]];                          // 個別調整
+  if(fixes) for(const fx of fixes){
+    const ix=mv.indexOf(fx[0]);
+    if(ix>=0&&!mv.includes(fx[1])) mv[ix]=fx[1];
   }
   return mv;
 }
@@ -820,13 +833,17 @@ function resolveMove(user,tgt,name,rng,ctx){
     for(const s in mv.selfFx) applyStat(user,s,mv.selfFx[s],ev,L);
   }
   if(mv.pivot&&user.hp>0) ev.push({k:"pivot",mon:user});
+  const allyOf=ctx.isAlly||(()=>false);
   if(tgt.hp<=0){
     const ftxt=L(tgt)+"は たおれた!";
-    tgt.kos=0; tgt.maxBoost=false;
+    if(!allyOf(tgt)){ tgt.kos=0; tgt.maxBoost=false; }  /* 味方は+を失わない */
     ev.push({k:"faint",mon:tgt,msg:ftxt});
     if(user.hp>0) gainKo(user,!!ctx.canMax,ev,L);
   }
-  if(user.hp<=0){ user.kos=0; user.maxBoost=false; ev.push({k:"faint",mon:user,msg:L(user)+"は たおれた!"}); }
+  if(user.hp<=0){
+    if(!allyOf(user)){ user.kos=0; user.maxBoost=false; }
+    ev.push({k:"faint",mon:user,msg:L(user)+"は たおれた!"});
+  }
   return ev;
 }
 
@@ -840,7 +857,7 @@ function endOfTurnEvents(a,b,L,isAlly){
     ev.push({k:"msg",t:txt});
     if(m.hp<=0){
       const ftxt=L(m)+"は たおれた!";
-      m.kos=0; m.maxBoost=false;
+      if(!isAlly(m)){ m.kos=0; m.maxBoost=false; }  /* 味方は+を失わない */
       ev.push({k:"faint",mon:m,msg:ftxt});
       if(foe&&foe.hp>0) gainKo(foe,isAlly(foe),ev,L);
       return true;
@@ -1016,6 +1033,20 @@ const CloudRank={
       return res.ok;
     }catch(e){ return false; }
   },
+  /* 「みんなの総プレイ回数」は ranking への送信件数(=最後まで終えた対戦数)を
+     数えることで近似する。ランキング機能の開始(7/4)以降ぶんは正確、
+     それより前は記録が存在しないため含まれない。shallow指定で件数だけ軽量取得。 */
+  async fetchPlays(){
+    try{
+      const ctrl=new AbortController(); const t=setTimeout(()=>ctrl.abort(),6000);
+      const res=await fetch(FIREBASE_URL+"/ranking.json?shallow=true",{signal:ctrl.signal});
+      clearTimeout(t);
+      if(!res.ok) return null;
+      const data=await res.json();
+      if(!data) return 0;
+      return Object.keys(data).length;
+    }catch(e){ return null; }
+  },
   async fetchTop(n){
     n=n||10;
     try{
@@ -1097,6 +1128,13 @@ const Ach={
 
 /* ============ 更新情報 ============ */
 const PATCH_NOTES=[
+ {d:"7月6日 更新情報",items:[
+  "中断セーブに対応しました。ページを閉じたりリロードしても、タイトルの「つづきから」で再開できます。",
+  "一部モンスターのステータス、技を調整しました。",
+  "味方のモンスターはひんしになっても「+」ボーナスを失わなくなりました。ふっかつさせると強化されたまま戻ってきます。",
+  "相手が先に倒れたターンに、自分の変化技が不発になる不具合を修正しました。",
+  "みんなの総プレイ回数がトップページで見られるようになりました。",
+ ]},
  {d:"7月4日 更新情報",items:[
   "ランキング機能を追加しました。ゲーム開始時に入力したプレイヤー名、連勝数、日付が記録されます。他のプレイヤーの記録も見ることが出来ます。",
   "実績機能を追加しました。",
@@ -1115,9 +1153,11 @@ const PATCH_NOTES=[
 /* 現在の実効ステータス(段階・撃破ボーナス・状態異常込み) */
 function esc(s){ return String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
 /* 同じ名前は2件まで表示(「ななし」は例外)。データ自体は消さない表示側フィルタ */
+const RANK_NG=new Set(["ういるそん2"]);  /* テストデータ等の非表示リスト */
 function filterRank(list){
   const cnt={},out=[];
   for(const r of (list||[])){
+    if(RANK_NG.has(r.n)) continue;
     const key=r.n||"ななし";
     if(key!=="ななし"){
       cnt[key]=(cnt[key]||0)+1;
@@ -1228,6 +1268,23 @@ const SPRITES6={
   "....yyyyyyyy....",
   "...yy.yyyy.yy...",
   "....w......w....",
+  "................"]},
+ "リュウテイ":{pal:{c:"#e0c050",v:"#7a5ae0",d:"#3a2a70",r:"#e04848",w:"#f0ead8"},map:[
+  "................",
+  "....c.c..c.c....",
+  "....cccccccc....",
+  "....vvvvvvvv....",
+  "...vvrvvvvrvv...",
+  "...vvvwvvwvvv...",
+  "....vvvvvvvv....",
+  ".d..vvdddvv..d..",
+  "dd..vdddddv..dd.",
+  ".d..vvdddvv..d..",
+  "....vvvvvvvv....",
+  "...vvvvvvvvvv...",
+  "...vv.vvvv.vv...",
+  "...v..vvvv..v...",
+  "......v..v......",
   "................"]},
  "シンカイテイ":{pal:{n:"#2a4a7a",c:"#58e0e8",l:"#6a9ad8",p:"#b8d8e8"},map:[
   "................",
@@ -1441,8 +1498,65 @@ const App={
       drawMon(c,id,false);wrap.appendChild(c);
     }
     $("title-best").textContent="さいこう れんしょう: "+this.best+" / ちょうせん "+this.plays+"かい";
+    const run=Store.get("run",null);
+    const rb=$("resume-btn");
+    if(rb){
+      rb.style.display=run?"":"none";
+      if(run) rb.textContent="▶ つづきから (れんしょう"+run.streak+")";
+    }
+    CloudRank.fetchPlays().then(n=>{
+      const el=$("title-global");
+      if(el&&n!==null) el.textContent="みんなの そうプレイかいすう: "+n+" かい";
+    });
   },
   toTitle(){ this.init(); this.show("title-screen"); },
+
+  /* ---- ちゅうだんセーブ(ターンごとに自動保存) ---- */
+  saveRun(phase){
+    try{
+      const state={
+        v:1, phase:phase,
+        streak:this.streak,
+        party:this.party, epty:this.epty,
+        pIdx:this.pIdx, eIdx:this.eIdx,
+        trainer:this.trainer,
+        reviveUsed:this.reviveUsed,
+      };
+      if(phase==="trade") state.tradeFresh=this.tradeFresh;
+      Store.set("run",state);
+    }catch(e){}
+  },
+  clearRun(){ try{localStorage.removeItem("mlf_run");}catch(e){} },
+  resumeRun(){
+    const run=Store.get("run",null);
+    if(!run) return;
+    SFX.select();
+    this.streak=run.streak;
+    this.party=run.party; this.epty=run.epty;
+    this.pIdx=run.pIdx; this.eIdx=run.eIdx;
+    this.trainer=run.trainer;
+    this.reviveUsed=run.reviveUsed||{p:false,e:false};
+    if(run.phase==="trade"){ this.toTrade(run.tradeFresh); return; }
+    if(run.phase==="hof"){ this.showHof(); return; }
+    this.resumeBattle();
+  },
+  async resumeBattle(){
+    this.busy=true;
+    this.show("battle-screen");
+    $("field").classList.toggle("night",this.trainer.ai>=2);
+    $("streak-chip").textContent="れんしょう "+this.streak;
+    this.drawActive("p"); this.drawActive("e");
+    this.refreshHud(); this.hideMenu();
+    await say("ちゅうだんした ところから さいかい!");
+    this.busy=false;
+    if(this.pA().hp<=0){
+      if(this.party.every(m=>m.hp<=0)){ await this.defeat(); return; }
+      const i=await this.forcedSwitch();
+      this.pIdx=i; resetVolatile(this.pA());
+      this.drawActive("p"); this.refreshHud();
+    }
+    this.showMainMenu();
+  },
   markSeen(ids){
     ids.forEach(id=>this.dexSeen.add(id));
     Store.set("dex",Array.from(this.dexSeen));
@@ -1586,6 +1700,13 @@ const App={
   /* ---- ドラフト ---- */
   toDraft(){
     SFX.select();
+    const run=Store.get("run",null);
+    if(run){
+      let ok=true;
+      try{ ok=confirm("ちゅうだんセーブ(れんしょう"+run.streak+")が きえます。あたらしく はじめますか?"); }catch(e){}
+      if(!ok) return;
+    }
+    this.clearRun();
     this.streak=0;
     this.draftPool=genPlayerPool(Math.random);
     this.markSeen(this.draftPool);
@@ -1651,6 +1772,7 @@ const App={
     this.startBattle();
   },
   async startBattle(){
+    this.saveRun("battle");
     this.busy=true;
     this.show("battle-screen");
     $("field").classList.toggle("night",this.trainer.ai>=2);
@@ -1815,7 +1937,13 @@ const App={
   async actSide(side){
     const user=side==="p"?this.pA():this.eA();
     const tgt=side==="p"?this.eA():this.pA();
-    if(user.hp<=0||tgt.hp<=0)return;
+    if(user.hp<=0)return;
+    if(tgt.hp<=0){
+      /* 相手が先に倒れていても じぶん対象の変化技は発動できる */
+      const nm0=side==="p"?(this.turn.pAct.kind==="move"?this.turn.pAct.move:null):this.turn.eMove;
+      const mv0=nm0?MOVES[nm0]:null;
+      if(!(mv0&&mv0.st&&(mv0.self||mv0.heal||mv0.revive)))return;
+    }
     if(user.flinched){
       user.flinched=false;
       await say(this.label(user)+"は ひるんで うごけない!");
@@ -1833,7 +1961,8 @@ const App={
       ?!MOVES[this.turn.eMove].st
       :(this.turn.pAct.kind==="move"&&!MOVES[this.turn.pAct.move].st);
     const ctx={label:this.label,tgtMoved:this.turn.moved[other],tgtAttacking:otherAttacking,
-      allies:side==="p"?this.party:this.epty,canRevive:!this.reviveUsed[side],canMax:side==="p"};
+      allies:side==="p"?this.party:this.epty,canRevive:!this.reviveUsed[side],canMax:side==="p",
+      isAlly:m=>this.party.includes(m)};
     const evs=resolveMove(user,tgt,name,Math.random,ctx);
     if(evs.some(e=>e.k==="revive")){ this.reviveUsed[side]=true; if(side==="p") Ach.unlock("revive1"); }
     await this.playEvents(evs);
@@ -1924,6 +2053,7 @@ const App={
       this.drawActive("p");this.refreshHud();
       await say("ゆけっ! "+this.pA().name+"!");
     }
+    this.saveRun("battle");
     this.busy=false;
     this.showMainMenu();
   },
@@ -1965,23 +2095,23 @@ const App={
     await say("しょうりの よいん! たおれていない なかまは ぜんかいふくした!");
     await say("れんしょうすうは 【"+this.streak+"】になった! あいての モンスターと こうかん できるぞ");
     this.busy=false;
-    if(this.streak===30){ this.showHof(); return; }
+    if(this.streak===30){ this.saveRun("hof"); this.showHof(); return; }
     this.toTrade();
   },
   async defeat(){
+    this.clearRun();
     SFX.lose();
     await say("てもちが ぜんめつした… めのまえが まっくらに なった!");
     this.busy=false;
-    let recorded=false;
-    if(this.streak>0){
+    let recorded=true;
+    {
       const entry={n:(this.playerName||"ななし").slice(0,8),s:this.streak,d:new Date().toLocaleDateString("ja-JP")};
       const rank=Store.get("rank",[]);
       rank.push(entry);
       rank.sort((a,b)=>b.s-a.s);
       Store.set("rank",rank.slice(0,10));
-      recorded=true;
-      Ach.unlock("rank1");
-      CloudRank.submit(entry); // 失敗しても無視(ローカルには残る)
+      if(this.streak>0) Ach.unlock("rank1");
+      CloudRank.submit(entry); // 0れんしょうでも そうしんする(そうプレイかいすうの集計のため)。失敗しても無視(ローカルには残る)
     }
     $("result-streak").textContent=this.streak;
     $("result-best").textContent="さいこう きろく: "+this.best+"れんしょう"+(recorded?" / ランキングに そうしんした!":"");
@@ -1997,11 +2127,11 @@ const App={
   },
 
   /* ---- 交換 ---- */
-  toTrade(){
+  toTrade(restoredFresh){
     this.tradeSel={enemy:-1,mine:-1};
     $("trade-title").textContent="れんしょう【"+this.streak+"】モンスター こうかん";
     const eg=$("trade-enemy");eg.innerHTML="";
-    this.tradeFresh=this.epty.map(m=>makeMon(m.dexId));
+    this.tradeFresh=restoredFresh||this.epty.map(m=>makeMon(m.dexId));
     this.tradeFresh.forEach((fm,i)=>{
       const card=this.buildCard(fm,{});
       card.dataset.i=i;
@@ -2016,6 +2146,7 @@ const App={
       mg.appendChild(card);
     });
     this.updateTradeUI();
+    this.saveRun("trade");
     this.show("trade-screen");
   },
   updateTradeUI(){
