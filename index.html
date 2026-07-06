@@ -162,7 +162,7 @@
         ・ランダムな6たいから 3たいをレンタルして しゅつげき(ぜんいんLv50)<br>
         ・かつと こうかんできる。たおれていない なかまは ぜんかいふく!<br>
         ・ひんしは こうかんか ★5の ふっかつわざでしか もどらない<br>
-        ・あいてを たおすと「+1」パワーアップ(+5のさきは みかただけ max! / ひんしでリセット)<br>
+        ・あいてを たおすと「+1」パワーアップ(+5のさきは みかただけ max!)。みかたは たおれても + は きえない<br>
         ・★5には ☆せんようわざ / ★4はベテラン戦・★5はマスター戦から とうじょう<br>
         ・れんしょう10から あいてのエースに「+」ほせい(25からは ぜんいん+5)<br>
         ・れんしょう20から★5かくてい、30こえで まぼろしの★6!?
@@ -414,7 +414,7 @@ const MOVES={
  "セイテンショウ":{t:"エスパー",p:110,a:100,fD:{c:30,d:-1},sig:1},
  "しんせいのまい":{t:"エスパー",st:1,self:{atk:1,def:1,spd:1},sig:1},
  "うらみのしおざい":{t:"れい",p:90,a:100,curse:1,sig:1},
- "シンカイスパイク":{t:"みず",p:80,a:100,pri:1,sig:1},
+ "シンカイスパイク":{t:"みず",p:80,a:100,pri:1,par:50,sig:1},
 };
 /* ★5専用わざの割り当て(1体につき1つ) */
 const SIG={"ムテキオー":"おうのいのり","グレンオウ":"グレンヴォルケーノ","リヴァイア":"アビスドレイン","ライジンガー":"らいじんしっぷう","シンリンオウ":"じゅかいのじゅばく","ゼッタイレイ":"ぜったいれいとう","ゴウテツオー":"とうこんラッシュ","ガイアドン":"ガイアインパクト","テンクウオウ":"はおうのまい","ムゲンノウ":"ぜったいバリア","マガツオー":"まがつのほむら","リュウテイ":"ていおうざん","マオウガ":"まおうのぎしき"};
@@ -425,6 +425,7 @@ const MOVE_FIX={
  "ムゲンノウ":[["ねんのやいば","ブーストパワー"]],
  "ライジンガー":[["100まんボルト","エレキリレー"]],
  "ゴウテツオー":[["パンプアップ","ひとやすみ"]],
+ "シンカイテイ":[["ひとやすみ","まよいび"]],  /* じょうたいいじょうとくか: やけど付与 */
 };
 /* ★6のせんようわざ割り当て(各2つ) */
 const SIG6={"テンマオウ":["てんまのほうこう","じげんざん"],"セイテンオウ":["セイテンショウ","しんせいのまい"],"シンカイテイ":["うらみのしおざい","シンカイスパイク"]};
@@ -632,11 +633,18 @@ function genMoves(id){
 }
 
 /* ============ モンスター生成(Lv50固定) ============ */
-function makeMon(id,rng){
-  rng=typeof rng==="function"?rng:Math.random;
+function makeMon(id,rngOrTraits){
   const d=DEX[id];
-  const growth=rng()<0.05;                           /* せいちょうじまん: 5%・優先 */
-  const tough=!growth&&(d[1].includes("ノーマル")||rng()<0.05); /* たいりょくじまん */
+  let growth,tough;
+  if(rngOrTraits&&typeof rngOrTraits==="object"){
+    /* 個体の特性を そのまま引き継ぐ(交換候補プレビュー・実際の受取に使用) */
+    growth=!!rngOrTraits.growth;
+    tough=!growth&&!!rngOrTraits.tough;
+  }else{
+    const rng=typeof rngOrTraits==="function"?rngOrTraits:Math.random;
+    growth=rng()<0.05;                           /* せいちょうじまん: 5%・優先 */
+    tough=!growth&&(d[1].includes("ノーマル")||rng()<0.05); /* たいりょくじまん */
+  }
   const hp0=tough?Math.floor((d[2]+60)*1.3):d[2]+60;
   return {
     dexId:id, name:d[0], types:d[1].slice(), tier:tierOf(id),
@@ -1134,6 +1142,8 @@ const PATCH_NOTES=[
   "味方のモンスターはひんしになっても「+」ボーナスを失わなくなりました。ふっかつさせると強化されたまま戻ってきます。",
   "相手が先に倒れたターンに、自分の変化技が不発になる不具合を修正しました。",
   "みんなの総プレイ回数がトップページで見られるようになりました。",
+  "こうかんで あいてから もらう モンスターに、たいりょくじまん・せいちょうじまんの こたいさが ただしく ひきつがれるように しました。",
+  "れんしょう30を こえると、こうかんで える モンスターも「+5」の じょうたいに なります。",
  ]},
  {d:"7月4日 更新情報",items:[
   "ランキング機能を追加しました。ゲーム開始時に入力したプレイヤー名、連勝数、日付が記録されます。他のプレイヤーの記録も見ることが出来ます。",
@@ -2131,7 +2141,11 @@ const App={
     this.tradeSel={enemy:-1,mine:-1};
     $("trade-title").textContent="れんしょう【"+this.streak+"】モンスター こうかん";
     const eg=$("trade-enemy");eg.innerHTML="";
-    this.tradeFresh=restoredFresh||this.epty.map(m=>makeMon(m.dexId));
+    this.tradeFresh=restoredFresh||this.epty.map(m=>{
+      const fm=makeMon(m.dexId,{tough:m.tough,growth:m.growth});
+      if(this.streak>=30) fm.kos=5;   /* 31せんめ(れんしょう30)いこう: こうかんで えるモンスターも+5 */
+      return fm;
+    });
     this.tradeFresh.forEach((fm,i)=>{
       const card=this.buildCard(fm,{});
       card.dataset.i=i;
