@@ -40,6 +40,8 @@
   #title-sprites canvas{width:56px;height:56px;}
   .bignum{font-size:44px;color:#ffd75e;text-shadow:3px 3px 0 #000;}
   #pname{font-family:inherit;font-size:13px;width:8em;background:#12121f;color:var(--panel);border:2px solid #556;border-radius:4px;padding:3px 6px;text-align:center;}
+  .diff-btn{opacity:.45;font-size:12px;}
+  .diff-btn.sel{opacity:1;box-shadow:0 0 0 3px #ffd75e inset;}
 
   .btn{
     font-family:inherit;font-size:14px;background:#fff;color:var(--ink);
@@ -60,6 +62,7 @@
   .card:active{transform:scale(.97);}
   .card.sel{background:#fff8c8;border-color:var(--accent);box-shadow:0 0 0 2px var(--accent);}
   .card.dead{filter:grayscale(1);opacity:.75;}
+  .card.dead.sel{filter:grayscale(.35);opacity:1;box-shadow:0 0 0 3px var(--accent);}
   .card .pickno{
     position:absolute;top:-8px;right:-8px;width:26px;height:26px;border-radius:50%;
     background:var(--accent);color:#fff;border:2px solid #fff;display:flex;align-items:center;justify-content:center;font-size:14px;z-index:2;
@@ -160,13 +163,19 @@
       <div id="title-sprites"></div>
       <div class="rules">
         ・ランダムな6たいから 3たいをレンタルして しゅつげき(ぜんいんLv50)<br>
-        ・かつと こうかんできる。たおれていない なかまは ぜんかいふく!<br>
-        ・ひんしは こうかんか ★5の ふっかつわざでしか もどらない<br>
+        ・かつと なかまは ぜんかいふく! あいてと こうかんも できる<br>
+        ・ハードのみ ひんしは こうかんか ★5の ふっかつわざでしか もどらない<br>
         ・あいてを たおすと「+1」パワーアップ(+5のさきは みかただけ max!)。みかたは たおれても + は きえない<br>
         ・★5には ☆せんようわざ / ★4はベテラン戦・★5はマスター戦から とうじょう<br>
         ・れんしょう10から あいてのエースに「+」ほせい(25からは ぜんいん+5)<br>
         ・れんしょう20から★5かくてい、30こえで まぼろしの★6!?
       </div>
+      <div class="fixedbar" style="width:75%">
+        <button class="btn main diff-btn" id="diff-easy" onclick="App.setDiff('easy')">イージー</button>
+        <button class="btn main diff-btn" id="diff-normal" onclick="App.setDiff('normal')">ノーマル</button>
+        <button class="btn main diff-btn" id="diff-hard" onclick="App.setDiff('hard')">ハード</button>
+      </div>
+      <div class="sub" id="diff-desc"></div>
       <div class="sub">なまえ: <input id="pname" maxlength="8" placeholder="ななし"></div>
       <button class="btn main" style="width:75%;display:none" id="resume-btn" onclick="App.resumeRun()">つづきから</button>
       <button class="btn main" style="width:75%" onclick="App.toDraft()">▶ ちょうせん スタート</button>
@@ -255,6 +264,11 @@
 
     <div id="rank-screen" class="screen dark-screen">
       <h2>れんしょうランキング</h2>
+      <div class="fixedbar" style="width:100%">
+        <button class="btn main diff-btn" id="rtab-easy" onclick="App.toRank('easy')">イージー</button>
+        <button class="btn main diff-btn" id="rtab-normal" onclick="App.toRank('normal')">ノーマル</button>
+        <button class="btn main diff-btn" id="rtab-hard" onclick="App.toRank('hard')">ハード</button>
+      </div>
       <div class="sub" id="rank-sub">よみこみちゅう…</div>
       <div class="rules" id="rank-list" style="width:100%;line-height:2.2;"></div>
       <button class="btn main" style="width:75%" onclick="App.toTitle()">もどる</button>
@@ -811,6 +825,7 @@ function resolveMove(user,tgt,name,rng,ctx){
   const hpBefore=tgt.hp;
   tgt.hp=Math.max(0,tgt.hp-r.dmg);
   const dealt=hpBefore-tgt.hp;   /* 実際に与えたダメージ(反動・吸収の基準) */
+  const attackerAliveOnHit=user.hp>0;  /* 反動で後から倒れても、命中した瞬間は生きていた扱いにする */
   ev.push({k:"fx",f:"hit",mon:tgt,mult:r.mult,crit:r.crit});
   if(r.crit) ev.push({k:"msg",t:"きゅうしょに あたった!"});
   if(r.mult>1) ev.push({k:"msg",t:"こうかは ばつぐんだ!"});
@@ -846,7 +861,7 @@ function resolveMove(user,tgt,name,rng,ctx){
     const ftxt=L(tgt)+"は たおれた!";
     if(!allyOf(tgt)){ tgt.kos=0; tgt.maxBoost=false; }  /* 味方は+を失わない */
     ev.push({k:"faint",mon:tgt,msg:ftxt});
-    if(user.hp>0) gainKo(user,!!ctx.canMax,ev,L);
+    if(attackerAliveOnHit) gainKo(user,!!ctx.canMax,ev,L);
   }
   if(user.hp<=0){
     if(!allyOf(user)){ user.kos=0; user.maxBoost=false; }
@@ -974,8 +989,8 @@ function genPlayerPool(rng){
   for(let k=0;k<6;k++){ const id=weightedDexId(rng,w,ex); ex.add(id); out.push(id); }
   return out;
 }
-function genEnemyTeam(rng,streak){
-  const rank=aiLevelForStreak(streak);
+function genEnemyTeam(rng,streak,diff){
+  const rank=aiLevelForStreak(streak,diff);
   const w={
     1:Math.max(4,45-9*streak),
     2:45,
@@ -1002,7 +1017,8 @@ function genEnemyTeam(rng,streak){
 }
 /* 敵の「+」補正プラン([1体目,2体目,3体目])
    11戦目〜20戦目: 3体目のみ+1→+5 / 21戦目〜: 後ろ2体+5 / 25戦目〜: 全員+5 */
-function enemyKoPlan(streak){
+function enemyKoPlan(streak,diff){
+  if(diff==="easy") return [0,0,0];                /* イージー: +ほせいなし */
   const step=clamp(Math.floor((streak-8)/2),0,5);
   if(streak>=24) return [5,5,5];
   if(streak>=20) return [0,5,5];
@@ -1015,7 +1031,11 @@ const RANKS=[
   {label:"ベテラン",note:"ときどき かしこく たたかう"},
   {label:"マスター",note:"つねに さいぜんの わざを えらぶ"},
 ];
-function aiLevelForStreak(s){ return s<2?0:s<5?1:2; }
+function aiLevelForStreak(s,diff){
+  if(diff==="easy")   return s<5?0:1;              /* イージー: 6戦目からベテラン、マスターなし */
+  if(diff==="normal") return s<5?0:(s<10?1:2);     /* ノーマル: 6戦目ベテラン、11戦目マスター */
+  return s<2?0:s<5?1:2;                            /* ハード: 従来どおり */
+}
 /*===CORE_END===*/
 </script>
 
@@ -1028,13 +1048,22 @@ const Store={
   get(k,fb){ try{const v=localStorage.getItem("mlf_"+k); return v===null?fb:JSON.parse(v);}catch(e){return fb;} },
   set(k,v){ try{localStorage.setItem("mlf_"+k,JSON.stringify(v));}catch(e){} },
 };
+/* 難易度定義 */
+const DIFFS={
+ easy:{label:"イージー",desc:"+ほせいなし・マスターAIなし・かてば ひんしも ふっかつ"},
+ normal:{label:"ノーマル",desc:"11せんめから マスターAI・かてば ひんしも ふっかつ"},
+ hard:{label:"ハード",desc:"これまでの むずかしさ。ひんしは ふっかつしない"},
+};
+const rankPath=d=>d==="easy"?"/ranking_easy":d==="normal"?"/ranking_normal":"/ranking";
+const localRankKey=d=>d==="easy"?"rank_easy":d==="normal"?"rank_normal":"rank";
+
 /* グローバルランキング(Firebase Realtime Database, REST API) */
 const FIREBASE_URL="https://monster-league-factory-default-rtdb.firebaseio.com";
 const CloudRank={
-  async submit(entry){
+  async submit(entry,diff){
     try{
       const ctrl=new AbortController(); const t=setTimeout(()=>ctrl.abort(),6000);
-      const res=await fetch(FIREBASE_URL+"/ranking.json",{
+      const res=await fetch(FIREBASE_URL+rankPath(diff)+".json",{
         method:"POST", body:JSON.stringify(entry), signal:ctrl.signal,
       });
       clearTimeout(t);
@@ -1045,21 +1074,26 @@ const CloudRank={
      数えることで近似する。ランキング機能の開始(7/4)以降ぶんは正確、
      それより前は記録が存在しないため含まれない。shallow指定で件数だけ軽量取得。 */
   async fetchPlays(){
-    try{
-      const ctrl=new AbortController(); const t=setTimeout(()=>ctrl.abort(),6000);
-      const res=await fetch(FIREBASE_URL+"/ranking.json?shallow=true",{signal:ctrl.signal});
-      clearTimeout(t);
-      if(!res.ok) return null;
-      const data=await res.json();
-      if(!data) return 0;
-      return Object.keys(data).length;
-    }catch(e){ return null; }
+    /* 全難易度のランキング件数を合算 = みんなの総プレイ回数 */
+    const one=async p=>{
+      try{
+        const ctrl=new AbortController(); const t=setTimeout(()=>ctrl.abort(),6000);
+        const res=await fetch(FIREBASE_URL+p+".json?shallow=true",{signal:ctrl.signal});
+        clearTimeout(t);
+        if(!res.ok) return null;
+        const data=await res.json();
+        return data?Object.keys(data).length:0;
+      }catch(e){ return null; }
+    };
+    const rs=await Promise.all([one("/ranking"),one("/ranking_easy"),one("/ranking_normal")]);
+    if(rs.every(r=>r===null)) return null;
+    return rs.reduce((a,b)=>a+(b||0),0);
   },
-  async fetchTop(n){
+  async fetchTop(n,diff){
     n=n||10;
     try{
       const ctrl=new AbortController(); const t=setTimeout(()=>ctrl.abort(),6000);
-      const url=FIREBASE_URL+"/ranking.json?orderBy=%22s%22&limitToLast="+Math.max(n,50);
+      const url=FIREBASE_URL+rankPath(diff)+".json?orderBy=%22s%22&limitToLast="+Math.max(n,50);
       const res=await fetch(url,{signal:ctrl.signal});
       clearTimeout(t);
       if(!res.ok) return null;
@@ -1136,6 +1170,16 @@ const Ach={
 
 /* ============ 更新情報 ============ */
 const PATCH_NOTES=[
+ {d:"7月7日 更新情報",items:[
+  "難易度システムを追加しました。タイトル画面でイージー・ノーマル・ハードを選んでから挑戦できます。",
+  "【イージー】勝利するとひんしの仲間も全員復活します。相手モンスターの「+」補正はありません。5戦目までルーキーAI、6戦目からベテランAIで、マスターAIは登場しません。",
+  "【ノーマル】勝利するとひんしの仲間も全員復活します。5戦目までルーキーAI、10戦目までベテランAI、11戦目からマスターAI。相手の「+」補正はハードと同じです。",
+  "【ハード】これまでと同じ難易度です。ひんしは交換か復活わざでしか戻りません。3戦目からベテランAI、6戦目からマスターAI。",
+  "ランキングは難易度ごとに分かれました。これまでの記録はハードのランキングに引き継がれています。",
+  "みんなの総プレイ回数は全難易度の合算で集計されます。",
+  "反動技で相手を倒すと同時に自分も反動で たおれた場合に「+」ボーナスが つかない不具合を修正しました。",
+  "モンスター交換がめんで、ひんしの モンスターを えらんだときの ハイライトが みづらかった点を修正しました。",
+ ]},
  {d:"7月6日 更新情報",items:[
   "中断セーブに対応しました。ページを閉じたりリロードしても、タイトルの「つづきから」で再開できます。",
   "一部モンスターのステータス、技を調整しました。",
@@ -1459,11 +1503,16 @@ const App={
   tradeSel:{enemy:-1,mine:-1},
   _forcedRes:null, turn:null,
   dexSeen:new Set(), reviveUsed:{p:false,e:false},
-  playerName:"ななし", plays:0,
+  playerName:"ななし", plays:0, diff:"normal", rankView:"normal",
 
   show(id){document.querySelectorAll(".screen").forEach(s=>s.classList.remove("active"));$(id).classList.add("active");},
   boot(){
     Ach.load();
+    /* 難易度導入前からのプレイヤー(プレイ記録はあるが難易度未設定)は
+       「ハード」をデフォルトにして、過去の連勝記録との連続性を保つ。
+       完全新規のプレイヤーは「ノーマル」からスタート。 */
+    const hasLegacyPlayer=Store.get("plays",0)>0||Store.get("best",0)>0;
+    this.diff=Store.get("diff",hasLegacyPlayer?"hard":"normal");
     this.best=Store.get("best",0);
     this.plays=Store.get("plays",0);
     this.playerName=Store.get("name","ななし");
@@ -1488,7 +1537,7 @@ const App={
     if(n>=80) q("dex80");
     if(n>=100) q("dex100");
     if(n>=DEX.length) q("dexcomp");
-    if(Store.get("rank",[]).length>0) q("rank1");
+    if(Store.get("rank",[]).length>0||Store.get("rank_easy",[]).length>0||Store.get("rank_normal",[]).length>0) q("rank1");
     const gained=Ach.count()-before;
     if(gained>0) toast("これまでのきろくから じっせきを "+gained+"けん かいじょ!");
   },
@@ -1514,18 +1563,36 @@ const App={
       rb.style.display=run?"":"none";
       if(run) rb.textContent="▶ つづきから (れんしょう"+run.streak+")";
     }
+    this.renderDiffUI();
     CloudRank.fetchPlays().then(n=>{
       const el=$("title-global");
       if(el&&n!==null) el.textContent="みんなの そうプレイかいすう: "+n+" かい";
     });
   },
   toTitle(){ this.init(); this.show("title-screen"); },
+  setDiff(d){
+    if(!DIFFS[d]) return;
+    this.diff=d;
+    Store.set("diff",d);
+    SFX.select();
+    this.renderDiffUI();
+  },
+  renderDiffUI(){
+    for(const k in DIFFS){
+      const b=$("diff-"+k);
+      if(b) b.classList.toggle("sel",this.diff===k);
+    }
+    const dd=$("diff-desc");
+    if(dd) dd.textContent=DIFFS[this.diff].desc;
+  },
+  setChip(){ $("streak-chip").textContent=DIFFS[this.diff].label+" れんしょう "+this.streak; },
 
   /* ---- ちゅうだんセーブ(ターンごとに自動保存) ---- */
   saveRun(phase){
     try{
       const state={
         v:1, phase:phase,
+        diff:this.diff,
         streak:this.streak,
         party:this.party, epty:this.epty,
         pIdx:this.pIdx, eIdx:this.eIdx,
@@ -1541,6 +1608,8 @@ const App={
     const run=Store.get("run",null);
     if(!run) return;
     SFX.select();
+    this.diff=DIFFS[run.diff]?run.diff:"hard";  /* 旧セーブは難易度なし=ハード扱い */
+    this.renderDiffUI();
     this.streak=run.streak;
     this.party=run.party; this.epty=run.epty;
     this.pIdx=run.pIdx; this.eIdx=run.eIdx;
@@ -1554,7 +1623,7 @@ const App={
     this.busy=true;
     this.show("battle-screen");
     $("field").classList.toggle("night",this.trainer.ai>=2);
-    $("streak-chip").textContent="れんしょう "+this.streak;
+    this.setChip();
     this.drawActive("p"); this.drawActive("e");
     this.refreshHud(); this.hideMenu();
     await say("ちゅうだんした ところから さいかい!");
@@ -1621,20 +1690,28 @@ const App={
     this.show("notes-screen");
   },
 
-  /* ---- ランキング(このブラウザ内) ---- */
-  async toRank(){
+  /* ---- ランキング(難易度別) ---- */
+  async toRank(view){
     SFX.select();
+    this.rankView=DIFFS[view]?view:this.diff;
+    const my=this.rankView;
+    for(const k in DIFFS){
+      const b=$("rtab-"+k);
+      if(b) b.classList.toggle("sel",this.rankView===k);
+    }
     $("rank-list").innerHTML="よみこみちゅう…";
+    $("rank-sub").textContent=DIFFS[my].label+" の きろくを よみこみちゅう…";
     this.show("rank-screen");
-    const cloud=await CloudRank.fetchTop(60);
+    const cloud=await CloudRank.fetchTop(60,my);
+    if(this.rankView!==my) return;   /* タブが切り替わっていたら破棄 */
     const renderList=(list,label)=>{
       $("rank-sub").textContent=label;
       $("rank-list").innerHTML=list.length
         ? list.map((r,i)=>(i+1)+"い "+esc(r.n)+"  【"+r.s+"れんしょう】  "+esc(r.d||"")).join("<br>")
         : "まだ きろくが ないよ。ちょうせんして きろくを つくろう!";
     };
-    if(cloud!==null) renderList(filterRank(cloud),"ぜんこく ランキング(みんなの きろく)");
-    else renderList(filterRank(Store.get("rank",[])),"このブラウザの きろく(つうしん しっぱい)");
+    if(cloud!==null) renderList(filterRank(cloud),"【"+DIFFS[my].label+"】ぜんこく ランキング");
+    else renderList(filterRank(Store.get(localRankKey(my),[])),"【"+DIFFS[my].label+"】このブラウザの きろく(つうしん しっぱい)");
   },
 
   /* ---- ずかん詳細 ---- */
@@ -1768,10 +1845,10 @@ const App={
   nextBattle(){
     this.trainer={
       name:TRAINER_NAMES[Math.floor(Math.random()*TRAINER_NAMES.length)],
-      ai:aiLevelForStreak(this.streak),
+      ai:aiLevelForStreak(this.streak,this.diff),
     };
-    this.epty=genEnemyTeam(Math.random,this.streak).map(id=>makeMon(id));
-    const plan=enemyKoPlan(this.streak);
+    this.epty=genEnemyTeam(Math.random,this.streak,this.diff).map(id=>makeMon(id));
+    const plan=enemyKoPlan(this.streak,this.diff);
     this.epty.forEach((m,i)=>{ m.kos=plan[i]||0; m.baseBonus=plan[i]||0; });
     this.markSeen(this.epty.map(m=>m.dexId));
     this.reviveUsed={p:false,e:false};
@@ -1786,7 +1863,7 @@ const App={
     this.busy=true;
     this.show("battle-screen");
     $("field").classList.toggle("night",this.trainer.ai>=2);
-    $("streak-chip").textContent="れんしょう "+this.streak;
+    this.setChip();
     this.drawActive("p"); this.drawActive("e");
     this.refreshHud(); this.hideMenu();
     const r=RANKS[this.trainer.ai];
@@ -1802,7 +1879,7 @@ const App={
     const e=this.eA();
     if(e.introduced) return;      /* 交代技での再登場では くりかえさない */
     e.introduced=true;
-    const aces=enemyKoPlan(this.streak).filter(b=>b>0).length;
+    const aces=enemyKoPlan(this.streak,this.diff).filter(b=>b>0).length;
     if((e.baseBonus||0)>0&&aces===1)
       await say("きたえぬかれた エースこたいだ! つよさが ちがうぞ…!(+"+e.kos+")");
     if(e.tough) await say("あいての "+dispName(e)+"は たいりょくじまん! HPが 1.3ばいだ!");
@@ -2072,7 +2149,7 @@ const App={
   showHof(){
     SFX.win();
     Ach.unlock("hof30");
-    $("hof-sub").textContent=(this.playerName||"ななし")+" と なかまたち / "+new Date().toLocaleDateString("ja-JP");
+    $("hof-sub").textContent=(this.playerName||"ななし")+" と なかまたち / "+new Date().toLocaleDateString("ja-JP")+" / "+DIFFS[this.diff].label;
     const grid=$("hof-party"); grid.innerHTML="";
     this.party.forEach(m=>grid.appendChild(this.buildCard(m,{showHp:true})));
     $("hof-text").textContent="30れんしょう たっせい!! きみたちの きろくは でんどうに きざまれた!";
@@ -2097,12 +2174,15 @@ const App={
     if(this.streak>=10) Ach.unlock("streak10");
     if(this.streak>=20) Ach.unlock("streak20");
     this.checkMaxAch();
-    $("streak-chip").textContent="れんしょう "+this.streak;
+    this.setChip();
     await say(this.trainer.name+"との しょうぶに かった!");
-    this.party.forEach(m=>{ if(m.hp>0){ m.hp=m.maxHp; m.ail=null; } });
+    const reviveAll=this.diff!=="hard";        /* イージー/ノーマル: ひんしも ふっかつ */
+    this.party.forEach(m=>{ if(reviveAll||m.hp>0){ m.hp=m.maxHp; m.ail=null; } });
     this.refreshHud();
     SFX.heal();
-    await say("しょうりの よいん! たおれていない なかまは ぜんかいふくした!");
+    await say(reviveAll
+      ?"しょうりの よいん! ひんしの なかまも ふくめて ぜんいん ぜんかいふくした!"
+      :"しょうりの よいん! たおれていない なかまは ぜんかいふくした!");
     await say("れんしょうすうは 【"+this.streak+"】になった! あいての モンスターと こうかん できるぞ");
     this.busy=false;
     if(this.streak===30){ this.saveRun("hof"); this.showHof(); return; }
@@ -2116,12 +2196,13 @@ const App={
     let recorded=true;
     {
       const entry={n:(this.playerName||"ななし").slice(0,8),s:this.streak,d:new Date().toLocaleDateString("ja-JP")};
-      const rank=Store.get("rank",[]);
+      const key=localRankKey(this.diff);
+      const rank=Store.get(key,[]);
       rank.push(entry);
       rank.sort((a,b)=>b.s-a.s);
-      Store.set("rank",rank.slice(0,10));
+      Store.set(key,rank.slice(0,10));
       if(this.streak>0) Ach.unlock("rank1");
-      CloudRank.submit(entry); // 0れんしょうでも そうしんする(そうプレイかいすうの集計のため)。失敗しても無視(ローカルには残る)
+      CloudRank.submit(entry,this.diff); // 0れんしょうでも そうしんする(そうプレイかいすうの集計のため)。失敗しても無視(ローカルには残る)
     }
     $("result-streak").textContent=this.streak;
     $("result-best").textContent="さいこう きろく: "+this.best+"れんしょう"+(recorded?" / ランキングに そうしんした!":"");
